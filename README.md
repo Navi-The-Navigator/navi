@@ -1,97 +1,144 @@
-# Navi
+<p align="center">
+  <img src="./media/navi.svg" alt="Navi logo" width="120" />
+</p>
 
-Navi 是一个 VS Code 插件，专注于在编程过程中提供“任务驱动 + 思路引导”的 AI 辅助。
+<h1 align="center">Navi</h1>
 
-用户输入需求后，Navi 会帮助拆解任务、标注关键实现位置，并在每个任务点提供分层提示与局部反馈，帮助你在保持自主思考的前提下稳步完成代码实现。
+<p align="center">
+  A VS Code extension for guided coding, task decomposition, and mentor-style AI assistance.
+</p>
 
-## 为什么是 Navi
+<p align="center">
+  <a href="https://github.com/JimmyfaQwQ/navi/actions/workflows/pr-tests.yml">
+    <img src="https://github.com/JimmyfaQwQ/navi/actions/workflows/pr-tests.yml/badge.svg" alt="PR Tests" />
+  </a>
+</p>
 
-很多 AI 工具偏向“一次性生成完整答案”，这会让学习和掌控感变弱。Navi 的目标不是替你写完，而是像导师一样引导你：
+Navi 是一个面向编程场景的 VS Code 扩展，强调“任务驱动 + 思路引导”，目标不是一次性替你写完整答案，而是在关键节点提供清晰、渐进、可操作的帮助。
 
-- 先明确目标和边界，再开始编码
-- 把复杂需求拆成可执行的小任务
-- 在关键位置给你提示，而不是直接给整段答案
-- 完成一个任务点后，立即得到局部检查与改进建议
+> [!TIP]
+> 如果你希望 AI 更像导师而不是代码生成器，Navi 的设计方向会更贴近这种使用方式。
 
-## 核心体验（产品设计）
+> [!NOTE]
+> 当前版本仍处于早期原型阶段，核心交互已具备基础骨架，但很多产品能力还在演进中。
 
-1. 需求输入与任务拆解
-- 用户输入需求后，AI 生成建议的项目结构与任务清单。
+## Why Navi
 
-2. 任务锚点注入
-- 在代码中插入可导航的任务锚点（高亮区域），方便按步骤推进。
+很多 AI 工具更偏向“直接生成整段代码”。这在提速上有效，但会削弱理解过程、边界判断和实现掌控感。Navi 的目标不同：
 
-3. 浮动便签式思路引导
-- 每个锚点旁提供分层实现思路（从方向提示到渐进式细化），默认不直接给完整代码。
+- 先帮助你明确目标和约束，再开始实现
+- 把复杂需求拆成一组可推进的小任务
+- 在关键位置提供提示，而不是默认直接给出完整答案
+- 在完成局部实现后，给出针对性的检查和改进建议
 
-4. 完成即局部检查
-- 用户在对应位置完成代码后，可点击“完成”。
-- AI 针对该局部进行检查与反馈，重点关注：
-  - 正确性
-  - 思路合理性
-  - 可改进点
+## Core Experience
 
-5. 渐进式提示与下一步导航
-- 如果卡住，可请求更细一层的提示。
-- 也可直接跳转到下一个任务点继续推进。
+### 1. 需求输入与任务拆解
 
-6. 导师式聊天交互
-- AI 以提问、提示、局部分析为主，帮助用户建立问题解决路径。
+用户输入需求后，AI 生成建议的任务结构、实现方向和可推进路径。
 
-## 当前状态（v0.0.1）
+### 2. 任务锚点与步骤推进
 
-当前仓库为早期原型，已具备：
+围绕关键实现点组织任务，让用户可以按步骤完成，而不是在整个代码库里盲目跳转。
+
+### 3. 渐进式提示
+
+每个任务点都可以提供分层引导，从方向提示到更具体的实现建议，默认不直接倾倒完整答案。
+
+### 4. 局部完成后检查
+
+完成某一段实现后，用户可以获得面向该局部的反馈，重点关注：
+
+- 正确性
+- 思路是否合理
+- 结构与可维护性
+- 可继续优化的点
+
+### 5. 导师式聊天
+
+聊天交互以提问、澄清、提示、局部分析为主，帮助用户建立自己的问题解决路径。
+
+## Current Status
+
+当前仓库对应版本 `v0.0.1`，已经具备：
 
 - VS Code 扩展基础脚手架（TypeScript + Webpack）
-- Activity Bar 侧边栏入口 `Navi`
-- 基础 WebView 面板渲染
-- 示例命令 `navi.helloWorld`
+- Activity Bar 中的 Navi 侧边栏入口
+- 基础 Webview 聊天界面
+- DeepSeek 模型配置入口
+- MCP 工具接入配置入口
+- 本地测试与 GitHub PR 测试工作流
 
-尚未完成（计划中）：
+尚未完成但已在规划中的能力：
 
-- 需求解析与任务自动拆解
-- 代码锚点插入与导航
-- 浮动便签与分层提示交互
-- “完成后局部检查”工作流
-- 导师式对话策略与状态管理
+- 自动需求解析与任务树生成
+- 编辑器内任务锚点插入与导航
+- 更细粒度的渐进式提示策略
+- “完成后局部检查”闭环
+- 更稳定的会话状态管理与导师式策略
 
-## 快速开始（开发）
+> [!IMPORTANT]
+> 这个仓库目前更适合继续迭代原型和验证交互，而不是直接作为稳定生产插件发布。
 
-### 环境要求
+## Quick Start
 
-- Node.js 18+
+### Requirements
+
+- Node.js 22+
+- npm 10+
 - VS Code 1.110.0+
-- Yarn
 
-### 安装依赖
-
-```bash
-yarn install
-```
-
-### 构建
+### Install Dependencies
 
 ```bash
-yarn compile
+npm install
 ```
 
-### 开发模式（监听）
+### Build
 
 ```bash
-yarn watch
+npm run compile
 ```
 
-### 运行扩展
+### Watch Mode
 
-1. 在 VS Code 中打开本项目
-2. 按 `F5` 启动 Extension Development Host
-3. 在左侧 Activity Bar 找到 `Navi` 图标并打开侧边栏
+```bash
+npm run watch
+```
 
-## MCP 接入配置（可选）
+### Run Tests
+
+```bash
+npm test
+```
+
+### Launch the Extension
+
+1. 在 VS Code 中打开这个项目。
+2. 按 `F5` 启动 Extension Development Host。
+3. 在左侧 Activity Bar 中打开 `Navi` 侧边栏。
+
+> [!TIP]
+> `npm test` 会先执行 TypeScript 编译、Webpack 构建和 ESLint，再运行 VS Code 扩展测试。
+
+## Configuration
+
+Navi 当前暴露了以下主要配置：
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `navi.deepseekApiKey` | DeepSeek API Key | `""` |
+| `navi.deepseekBaseUrl` | DeepSeek OpenAI-compatible base URL | `https://api.deepseek.com/v1` |
+| `navi.deepseekModel` | DeepSeek model name | `deepseek-chat` |
+| `navi.temperature` | Sampling temperature | `0.2` |
+| `navi.mcpEnabled` | Enable MCP-based tools | `false` |
+| `navi.mcpServersJson` | JSON string describing MCP servers | `""` |
+
+## MCP Configuration
 
 Navi 支持通过 MCP 为 Agent 注入额外工具。
 
-1. 在 VS Code Settings 中开启 `navi.mcpEnabled`
+1. 在 VS Code Settings 中开启 `navi.mcpEnabled`。
 2. 配置 `navi.mcpServersJson`，例如：
 
 ```json
@@ -106,35 +153,55 @@ Navi 支持通过 MCP 为 Agent 注入额外工具。
 
 也可以通过环境变量 `NAVI_MCP_SERVERS_JSON` 提供同样的 JSON 字符串。
 
-## 项目结构
+> [!NOTE]
+> 如果 MCP 配置 JSON 无效，工具加载会失败。优先先用一个最小示例验证格式，再逐步扩展。
+
+## Project Structure
 
 ```text
 src/
-  extension.ts        # 插件入口，注册侧边栏与命令
+  agent/             # 模型网关与工具装配
+  chat/              # 会话状态管理
+  test/              # 扩展与单元测试
+  webview/           # 侧边栏 Webview HTML
+  extension.ts       # 扩展入口
 media/
-  navi.svg            # 侧边栏图标
-dist/                 # 构建产物
+  navi.svg           # Logo / sidebar icon
+  sidebar.css        # Webview styles
+.github/workflows/
+  pr-tests.yml       # Pull request CI
 ```
+
+## Development Workflow
+
+- `npm run compile`: 构建扩展代码
+- `npm run watch`: 监听扩展代码变更
+- `npm run compile-tests`: 编译测试代码到 `out/`
+- `npm run watch-tests`: 监听测试代码变更
+- `npm test`: 执行完整测试链路
+
+GitHub Actions 会在每个 Pull Request 上运行 [`.github/workflows/pr-tests.yml`](./.github/workflows/pr-tests.yml)。
 
 ## Roadmap
 
 - [ ] 需求输入面板与上下文采集
-- [ ] 任务分解引擎（结构化任务树）
+- [ ] 结构化任务分解引擎
 - [ ] 编辑器任务锚点渲染与跳转
-- [ ] 便签式思路提示（分层/渐进）
+- [ ] 便签式分层提示交互
 - [ ] 局部完成检查与反馈回路
 - [ ] 会话记忆与导师式提问策略
 - [ ] 可配置提示强度与学习模式
 
-## 贡献
+## Contributing
 
-欢迎通过 Issue / PR 参与共建，尤其是以下方向：
+欢迎通过 Issue 和 PR 参与共建，尤其是以下方向：
 
-- VS Code 编辑器装饰与交互体验
-- 任务分解与提示策略
-- 代码局部分析与反馈质量
-- 学习体验与教学式对话设计
+- VS Code 编辑器交互与装饰能力
+- 任务分解与提示策略设计
+- 局部代码分析与反馈质量
+- 教学式交互和学习体验设计
+- 测试、CI 与工程稳定性
 
-## 许可证
+## License
 
-当前仓库尚未声明许可证。发布前建议补充 `LICENSE` 文件。
+当前仓库尚未声明许可证。若准备公开分发，建议先补充 `LICENSE` 文件并明确使用条款。
