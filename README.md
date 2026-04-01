@@ -1,71 +1,121 @@
-# navi README
+# Navi
 
-This is the README for your extension "navi". After writing up a brief description, we recommend including the following sections.
+Navi 是一个 VS Code 插件，专注于在编程过程中提供“任务驱动 + 思路引导”的 AI 辅助。
 
-## Features
+用户输入需求后，Navi 会帮助拆解任务、标注关键实现位置，并在每个任务点提供分层提示与局部反馈，帮助你在保持自主思考的前提下稳步完成代码实现。
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+## 为什么是 Navi
 
-For example if there is an image subfolder under your extension project workspace:
+很多 AI 工具偏向“一次性生成完整答案”，这会让学习和掌控感变弱。Navi 的目标不是替你写完，而是像导师一样引导你：
 
-\!\[feature X\]\(images/feature-x.png\)
+- 先明确目标和边界，再开始编码
+- 把复杂需求拆成可执行的小任务
+- 在关键位置给你提示，而不是直接给整段答案
+- 完成一个任务点后，立即得到局部检查与改进建议
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## 核心体验（产品设计）
 
-## Requirements
+1. 需求输入与任务拆解
+- 用户输入需求后，AI 生成建议的项目结构与任务清单。
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+2. 任务锚点注入
+- 在代码中插入可导航的任务锚点（高亮区域），方便按步骤推进。
 
-## Extension Settings
+3. 浮动便签式思路引导
+- 每个锚点旁提供分层实现思路（从方向提示到渐进式细化），默认不直接给完整代码。
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+4. 完成即局部检查
+- 用户在对应位置完成代码后，可点击“完成”。
+- AI 针对该局部进行检查与反馈，重点关注：
+  - 正确性
+  - 思路合理性
+  - 可改进点
 
-For example:
+5. 渐进式提示与下一步导航
+- 如果卡住，可请求更细一层的提示。
+- 也可直接跳转到下一个任务点继续推进。
 
-This extension contributes the following settings:
+6. 导师式聊天交互
+- AI 以提问、提示、局部分析为主，帮助用户建立问题解决路径。
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+## 当前状态（v0.0.1）
 
-## Known Issues
+当前仓库为早期原型，已具备：
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- VS Code 扩展基础脚手架（TypeScript + Webpack）
+- Activity Bar 侧边栏入口 `Navi`
+- 基础 WebView 面板渲染
+- 示例命令 `navi.helloWorld`
 
-## Release Notes
+尚未完成（计划中）：
 
-Users appreciate release notes as you update your extension.
+- 需求解析与任务自动拆解
+- 代码锚点插入与导航
+- 浮动便签与分层提示交互
+- “完成后局部检查”工作流
+- 导师式对话策略与状态管理
 
-### 1.0.0
+## 快速开始（开发）
 
-Initial release of ...
+### 环境要求
 
-### 1.0.1
+- Node.js 18+
+- VS Code 1.110.0+
+- Yarn
 
-Fixed issue #.
+### 安装依赖
 
-### 1.1.0
+```bash
+yarn install
+```
 
-Added features X, Y, and Z.
+### 构建
 
----
+```bash
+yarn compile
+```
 
-## Following extension guidelines
+### 开发模式（监听）
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+```bash
+yarn watch
+```
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+### 运行扩展
 
-## Working with Markdown
+1. 在 VS Code 中打开本项目
+2. 按 `F5` 启动 Extension Development Host
+3. 在左侧 Activity Bar 找到 `Navi` 图标并打开侧边栏
 
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
+## 项目结构
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
+```text
+src/
+  extension.ts        # 插件入口，注册侧边栏与命令
+media/
+  navi.svg            # 侧边栏图标
+dist/                 # 构建产物
+```
 
-## For more information
+## Roadmap
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+- [ ] 需求输入面板与上下文采集
+- [ ] 任务分解引擎（结构化任务树）
+- [ ] 编辑器任务锚点渲染与跳转
+- [ ] 便签式思路提示（分层/渐进）
+- [ ] 局部完成检查与反馈回路
+- [ ] 会话记忆与导师式提问策略
+- [ ] 可配置提示强度与学习模式
 
-**Enjoy!**
+## 贡献
+
+欢迎通过 Issue / PR 参与共建，尤其是以下方向：
+
+- VS Code 编辑器装饰与交互体验
+- 任务分解与提示策略
+- 代码局部分析与反馈质量
+- 学习体验与教学式对话设计
+
+## 许可证
+
+当前仓库尚未声明许可证。发布前建议补充 `LICENSE` 文件。

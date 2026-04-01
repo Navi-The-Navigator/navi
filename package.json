@@ -9,9 +9,56 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:navi.sidebarWebview"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Navi",
+      "properties": {
+        "navi.deepseekApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "DeepSeek API Key. Prefer environment variable `DEEPSEEK_API_KEY` in shared environments."
+        },
+        "navi.deepseekBaseUrl": {
+          "type": "string",
+          "default": "https://api.deepseek.com/v1",
+          "description": "DeepSeek OpenAI-compatible API base URL."
+        },
+        "navi.deepseekModel": {
+          "type": "string",
+          "default": "deepseek-chat",
+          "description": "Model name for DeepSeek chat."
+        },
+        "navi.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Sampling temperature for model responses."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "naviSidebar",
+          "title": "Navi",
+          "icon": "media/navi.svg"
+        }
+      ]
+    },
+    "views": {
+      "naviSidebar": [
+        {
+          "id": "navi.sidebarWebview",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "navi.helloWorld",
@@ -31,16 +78,21 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.110.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "typescript-eslint": "^8.56.1",
-    "eslint": "^9.39.3",
-    "typescript": "^5.9.3",
-    "ts-loader": "^9.5.4",
-    "webpack": "^5.105.3",
-    "webpack-cli": "^6.0.1",
+    "@types/vscode": "^1.110.0",
     "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "webpack": "^5.105.3",
+    "webpack-cli": "^6.0.1"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.1.38",
+    "@langchain/langgraph": "^1.2.6",
+    "@langchain/openai": "^1.4.1"
   }
 }
