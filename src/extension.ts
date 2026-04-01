@@ -2,17 +2,23 @@ import * as vscode from 'vscode';
 import { DeepSeekChatGateway } from './agent/chatGateway';
 import { createDateTimeTool } from './agent/tools/dateTimeTool';
 import { ChatSessionStore } from './chat/sessionStore';
+import { SettingsManager } from './settings/settingsManager';
 import type { ChatInboundMessage } from './types/chat';
 import { getSidebarHtml } from './webview/sidebarHtml';
 
 class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'navi.sidebarWebview';
+	private static readonly envApiKeyConfirmedStateKey = 'navi.confirmedEnvApiKey';
 
 	private readonly gateway = new DeepSeekChatGateway([createDateTimeTool()]);
 	private readonly sessionStore = new ChatSessionStore();
+	private readonly settingsManager = new SettingsManager();
 	private isGenerating = false;
 
-	constructor(private readonly extensionUri: vscode.Uri) {}
+	constructor(
+		private readonly extensionUri: vscode.Uri,
+		private readonly globalState: vscode.Memento
+	) {}
 
 	public dispose(): void {
 		void this.gateway.dispose();
@@ -116,6 +122,11 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
+		if (message.type === 'chat:openSettings') {
+			await this.settingsManager.openSettings();
+			return;
+		}
+
 		if (message.type !== 'chat:userMessage') {
 			return;
 		}
@@ -131,6 +142,11 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	private async handleUserMessage(webview: vscode.Webview, prompt: string): Promise<void> {
 		if (this.isGenerating) {
 			await this.postError(webview, '请等待当前回答完成后再发送下一条消息。');
+			return;
+		}
+
+		const canProceed = await this.ensureApiKeyBeforeFirstMessage();
+		if (!canProceed) {
 			return;
 		}
 
@@ -179,6 +195,61 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
+	private async ensureApiKeyBeforeFirstMessage(): Promise<boolean> {
+		const config = vscode.workspace.getConfiguration('navi');
+		const configuredApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+		if (configuredApiKey) {
+			return true;
+		}
+
+		const envApiKey = (process.env.DEEPSEEK_API_KEY ?? '').trim();
+		if (envApiKey) {
+			const hasConfirmedEnvApiKey = this.globalState.get<boolean>(
+				NaviSidebarViewProvider.envApiKeyConfirmedStateKey,
+				false
+			);
+			if (hasConfirmedEnvApiKey) {
+				return true;
+			}
+
+			const choice = await vscode.window.showInformationMessage(
+				'检测到环境变量 DEEPSEEK_API_KEY。当前未在 VS Code 中配置 API Key。是否先使用环境变量继续？',
+				{ modal: true },
+				'使用环境变量',
+				'去设置 Key'
+			);
+
+			if (choice === '使用环境变量') {
+				await this.globalState.update(NaviSidebarViewProvider.envApiKeyConfirmedStateKey, true);
+				return true;
+			}
+
+			if (choice === '去设置 Key') {
+				await this.settingsManager.openApiKeySettings();
+				const refreshedApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+				if (refreshedApiKey) {
+					return true;
+				}
+				return false;
+			}
+
+			return false;
+		}
+
+		const setupChoice = await vscode.window.showWarningMessage(
+			'还没有可用的 API Key。是否现在去设置？',
+			{ modal: true },
+			'去设置 Key'
+		);
+		if (setupChoice !== '去设置 Key') {
+			return false;
+		}
+
+		await this.settingsManager.openApiKeySettings();
+		const updatedApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+		return !!updatedApiKey;
+	}
+
 	private async postError(webview: vscode.Webview, text: string): Promise<void> {
 		await webview.postMessage({
 			type: 'chat:error',
@@ -209,7 +280,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Congratulations, your extension "navi" is now active!');
 
-	const sidebarProvider = new NaviSidebarViewProvider(context.extensionUri);
+	const sidebarProvider = new NaviSidebarViewProvider(context.extensionUri, context.globalState);
 	const viewProvider = vscode.window.registerWebviewViewProvider(
 		NaviSidebarViewProvider.viewType,
 		sidebarProvider

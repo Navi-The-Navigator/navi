@@ -4,7 +4,8 @@ import { HumanMessage, type MessageContent } from '@langchain/core/messages';
 import { type DynamicTool, type StructuredToolInterface } from '@langchain/core/tools';
 import { createReactAgent } from '@langchain/langgraph/prebuilt';
 import { MemorySaver } from '@langchain/langgraph';
-import { MultiServerMCPClient, type Connection } from '@langchain/mcp-adapters';
+import { MultiServerMCPClient } from '@langchain/mcp-adapters';
+import { parseMcpServerSettings, toEnabledMcpConnections } from '../mcp/config';
 import type { RenderableMessage } from '../types/chat';
 import { extractMessageText, getMessageType } from '../utils/message';
 
@@ -138,9 +139,9 @@ export class DeepSeekChatGateway {
 
 	private async createAgent(): Promise<ReturnType<typeof createReactAgent>> {
 		const config = vscode.workspace.getConfiguration('navi');
-		const apiKey = (process.env.DEEPSEEK_API_KEY ?? config.get<string>('deepseekApiKey') ?? '').trim();
+		const apiKey = this.resolveApiKey(config);
 		if (!apiKey) {
-			throw new Error('缺少 API Key。请设置环境变量 DEEPSEEK_API_KEY 或在 Settings 中配置 navi.deepseekApiKey。');
+			throw new Error('缺少 API Key。请先通过 Settings 配置 navi.deepseekApiKey，或确认使用环境变量 DEEPSEEK_API_KEY。');
 		}
 
 		const model = config.get<string>('deepseekModel', DEFAULT_DEEPSEEK_MODEL);
@@ -176,26 +177,37 @@ export class DeepSeekChatGateway {
 			);
 		}
 
-		let parsedServers: unknown;
+		let parsedServers;
 		try {
-			parsedServers = JSON.parse(mcpServersJson);
-		} catch {
-			throw new Error('navi.mcpServersJson 不是有效的 JSON。');
+			parsedServers = parseMcpServerSettings(mcpServersJson);
+		} catch (error) {
+			if (error instanceof SyntaxError) {
+				throw new Error('navi.mcpServersJson 不是有效的 JSON。');
+			}
+			throw error;
 		}
 
-		if (!parsedServers || typeof parsedServers !== 'object' || Array.isArray(parsedServers)) {
-			throw new Error(
-				'navi.mcpServersJson 必须是对象，例如 {"math":{"transport":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-math"]}}。'
-			);
+		const normalizedServers = toEnabledMcpConnections(parsedServers);
+		if (Object.keys(normalizedServers).length === 0) {
+			return [];
 		}
 
 		this.mcpClient = new MultiServerMCPClient({
-			mcpServers: parsedServers as Record<string, Connection>,
+			mcpServers: normalizedServers,
 			onConnectionError: 'ignore',
 			prefixToolNameWithServerName: true,
 			useStandardContentBlocks: true
 		});
 
 		return await this.mcpClient.getTools();
+	}
+
+	private resolveApiKey(config: vscode.WorkspaceConfiguration): string {
+		const configuredApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+		if (configuredApiKey) {
+			return configuredApiKey;
+		}
+
+		return (process.env.DEEPSEEK_API_KEY ?? '').trim();
 	}
 }

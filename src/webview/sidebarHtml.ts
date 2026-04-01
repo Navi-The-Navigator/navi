@@ -35,6 +35,7 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		<div class="composer">
 			<textarea id="prompt" placeholder="Ask Navi anything"></textarea>
 			<div class="composer-actions">
+				<button id="settingsBtn" class="composer-secondary" type="button">Settings</button>
 				<button id="sendBtn" class="composer-send" type="button">Send</button>
 			</div>
 		</div>
@@ -44,6 +45,7 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		const chatHeader = document.querySelector('.chat-header');
 		const chatBody = document.getElementById('chatBody');
 		const promptInput = document.getElementById('prompt');
+		const settingsBtn = document.getElementById('settingsBtn');
 		const sendBtn = document.getElementById('sendBtn');
 		const sessionDropdown = document.getElementById('sessionDropdown');
 		const activeSessionLabel = document.getElementById('activeSessionLabel');
@@ -65,10 +67,12 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			if (isLoading) {
 				loading.classList.add('show');
 				sendBtn.disabled = true;
+				settingsBtn.disabled = true;
 				closeSessionDropdown();
 			} else {
 				loading.classList.remove('show');
 				sendBtn.disabled = false;
+				settingsBtn.disabled = false;
 			}
 		}
 
@@ -321,6 +325,12 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		}
 
 		sendBtn.addEventListener('click', sendMessage);
+		settingsBtn.addEventListener('click', () => {
+			if (isBusy) {
+				return;
+			}
+			vscode.postMessage({ type: 'chat:openSettings' });
+		});
 		chatHeader.addEventListener('click', (event) => {
 			if (isBusy) {
 				return;

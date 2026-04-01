@@ -264,11 +264,33 @@ body {
 }
 .composer-actions {
 	display: flex;
-	justify-content: flex-end;
+	justify-content: space-between;
+	align-items: center;
 	border-top: 1px solid var(--vscode-input-border);
 	margin-left: -8px;
 	margin-right: -8px;
 	padding: 3px 8px 0 8px;
+}
+.composer-secondary {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var(--vscode-input-border);
+	border-radius: 8px;
+	padding: 0 10px;
+	height: 20px;
+	font-size: 11px;
+	cursor: pointer;
+	background: transparent;
+	color: var(--vscode-foreground);
+	margin-top: 4px;
+}
+.composer-secondary:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+.composer-secondary:disabled {
+	opacity: 0.6;
+	cursor: default;
 }
 .composer-send {
 	display: inline-flex;
