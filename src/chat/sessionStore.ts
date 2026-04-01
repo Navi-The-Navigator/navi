@@ -1,8 +1,9 @@
-import { createThreadId } from '../utils/id';
-import type { ChatSession } from '../types/chat';
+import { createThreadId, createTodoId } from '../utils/id';
+import type { ChatSession, ChatTodo } from '../types/chat';
 
 export class ChatSessionStore {
 	private readonly sessions: ChatSession[] = [];
+	private readonly todosBySessionId = new Map<string, ChatTodo[]>();
 	private currentSessionId = '';
 
 	constructor() {
@@ -26,6 +27,7 @@ export class ChatSessionStore {
 		};
 
 		this.sessions.unshift(session);
+		this.todosBySessionId.set(session.id, []);
 		this.currentSessionId = session.id;
 		return session;
 	}
@@ -68,6 +70,7 @@ export class ChatSessionStore {
 
 		const deletingCurrent = this.currentSessionId === sessionId;
 		this.sessions.splice(index, 1);
+		this.todosBySessionId.delete(sessionId);
 
 		if (this.sessions.length === 0) {
 			const session = this.createSession();
@@ -81,5 +84,102 @@ export class ChatSessionStore {
 		}
 
 		return true;
+	}
+
+	public getTodos(sessionId: string): ChatTodo[] {
+		return [...(this.todosBySessionId.get(sessionId) ?? [])];
+	}
+
+	public addTodo(sessionId: string, text: string): ChatTodo | undefined {
+		const normalized = text.replace(/\s+/g, ' ').trim();
+		if (!normalized) {
+			return undefined;
+		}
+		const todos = this.ensureTodoList(sessionId);
+		const todo: ChatTodo = {
+			id: createTodoId(),
+			text: normalized.length > 200 ? `${normalized.slice(0, 200)}...` : normalized,
+			completed: false,
+			createdAt: Date.now()
+		};
+		todos.push(todo);
+		return todo;
+	}
+
+	public deleteTodo(sessionId: string, todoId: string): boolean {
+		const todos = this.ensureTodoList(sessionId);
+		const index = todos.findIndex((todo) => todo.id === todoId);
+		if (index < 0) {
+			return false;
+		}
+		todos.splice(index, 1);
+		return true;
+	}
+
+	public updateTodoText(sessionId: string, todoId: string, text: string): boolean {
+		const todos = this.ensureTodoList(sessionId);
+		const todo = todos.find((item) => item.id === todoId);
+		if (!todo) {
+			return false;
+		}
+		const normalized = text.replace(/\s+/g, ' ').trim();
+		if (!normalized) {
+			return false;
+		}
+		todo.text = normalized.length > 200 ? `${normalized.slice(0, 200)}...` : normalized;
+		return true;
+	}
+
+	public setTodoCompleted(sessionId: string, todoId: string, completed: boolean): boolean {
+		const todos = this.ensureTodoList(sessionId);
+		const todo = todos.find((item) => item.id === todoId);
+		if (!todo) {
+			return false;
+		}
+		todo.completed = completed;
+		todo.completedAt = completed ? Date.now() : undefined;
+		return true;
+	}
+
+	public clearTodos(sessionId: string, completedOnly = false): number {
+		const todos = this.ensureTodoList(sessionId);
+		if (!completedOnly) {
+			const removedCount = todos.length;
+			todos.splice(0, todos.length);
+			return removedCount;
+		}
+		const previousCount = todos.length;
+		const pending = todos.filter((todo) => !todo.completed);
+		todos.splice(0, todos.length, ...pending);
+		return previousCount - pending.length;
+	}
+
+	public replaceTodos(sessionId: string, entries: Array<{ text: string; completed?: boolean }>): ChatTodo[] {
+		const todos = this.ensureTodoList(sessionId);
+		todos.splice(0, todos.length);
+		for (const entry of entries) {
+			const normalized = entry.text.replace(/\s+/g, ' ').trim();
+			if (!normalized) {
+				continue;
+			}
+			const completed = entry.completed ?? false;
+			todos.push({
+				id: createTodoId(),
+				text: normalized.length > 200 ? `${normalized.slice(0, 200)}...` : normalized,
+				completed,
+				createdAt: Date.now(),
+				completedAt: completed ? Date.now() : undefined
+			});
+		}
+		return this.getTodos(sessionId);
+	}
+
+	private ensureTodoList(sessionId: string): ChatTodo[] {
+		let todos = this.todosBySessionId.get(sessionId);
+		if (!todos) {
+			todos = [];
+			this.todosBySessionId.set(sessionId, todos);
+		}
+		return todos;
 	}
 }

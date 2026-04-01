@@ -81,4 +81,36 @@ suite('ChatSessionStore', () => {
 		assert.notStrictEqual(store.getCurrentSessionId(), previousSessionId);
 		assert.strictEqual(store.getCurrentSessionId(), store.getSessions()[0].id);
 	});
+
+	test('manages todos within a session', () => {
+		const store = new ChatSessionStore();
+		const sessionId = store.getCurrentSessionId();
+		const first = store.addTodo(sessionId, '  add task breakdown ');
+		const second = store.addTodo(sessionId, 'write tests');
+
+		assert.ok(first);
+		assert.ok(second);
+		assert.strictEqual(store.getTodos(sessionId).length, 2);
+		assert.strictEqual(store.setTodoCompleted(sessionId, first!.id, true), true);
+		assert.strictEqual(store.updateTodoText(sessionId, second!.id, 'write integration tests'), true);
+		assert.strictEqual(store.getTodos(sessionId).filter((todo) => todo.completed).length, 1);
+		assert.strictEqual(store.clearTodos(sessionId, true), 1);
+		assert.strictEqual(store.getTodos(sessionId).length, 1);
+		assert.strictEqual(store.deleteTodo(sessionId, second!.id), true);
+		assert.strictEqual(store.getTodos(sessionId).length, 0);
+	});
+
+	test('cleans up todos when deleting a session', () => {
+		const store = new ChatSessionStore();
+		const firstSession = store.getCurrentSessionId();
+		store.addTodo(firstSession, 'todo-a');
+
+		const secondSession = store.createSession().id;
+		store.addTodo(secondSession, 'todo-b');
+		assert.strictEqual(store.getTodos(secondSession).length, 1);
+
+		assert.strictEqual(store.deleteSession(secondSession), true);
+		assert.deepStrictEqual(store.getTodos(secondSession), []);
+		assert.strictEqual(store.getTodos(firstSession).length, 1);
+	});
 });

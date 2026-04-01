@@ -29,8 +29,8 @@
         },
         "navi.deepseekModel": {
           "type": "string",
-          "default": "deepseek-chat",
-          "description": "Model name for DeepSeek chat."
+          "default": "deepseek-reasoner",
+          "description": "Model name for DeepSeek (default uses reasoning model)."
         },
         "navi.temperature": {
           "type": "number",
@@ -38,6 +38,13 @@
           "minimum": 0,
           "maximum": 2,
           "description": "Sampling temperature for model responses."
+        },
+        "navi.recursionLimit": {
+          "type": "number",
+          "default": 60,
+          "minimum": 10,
+          "maximum": 200,
+          "description": "Max LangGraph reasoning/tool steps per request. Increase if the agent hits recursion limit."
         },
         "navi.mcpEnabled": {
           "type": "boolean",

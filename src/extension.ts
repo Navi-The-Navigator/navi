@@ -1,6 +1,12 @@
 import * as vscode from 'vscode';
 import { DeepSeekChatGateway } from './agent/chatGateway';
 import { createDateTimeTool } from './agent/tools/dateTimeTool';
+import { createManageTodosTool } from './agent/tools/manageTodosTool';
+import { createProjectStructureTool } from './agent/tools/projectStructureTool';
+import { createReadFileTool } from './agent/tools/readFileTool';
+import { createSearchFileContentTool } from './agent/tools/searchFileContentTool';
+import { createSearchFilesTool } from './agent/tools/searchFilesTool';
+import { createUpdateProgressTool } from './agent/tools/updateProgressTool';
 import { ChatSessionStore } from './chat/sessionStore';
 import { SettingsManager } from './settings/settingsManager';
 import type { ChatInboundMessage } from './types/chat';
@@ -10,15 +16,51 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'navi.sidebarWebview';
 	private static readonly envApiKeyConfirmedStateKey = 'navi.confirmedEnvApiKey';
 
-	private readonly gateway = new DeepSeekChatGateway([createDateTimeTool()]);
 	private readonly sessionStore = new ChatSessionStore();
+	private readonly gateway: DeepSeekChatGateway;
 	private readonly settingsManager = new SettingsManager();
 	private isGenerating = false;
+	private cancelGenerationRequested = false;
+	private activeWebview?: vscode.Webview;
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,
 		private readonly globalState: vscode.Memento
-	) {}
+	) {
+		this.gateway = new DeepSeekChatGateway([
+			createDateTimeTool(),
+			createProjectStructureTool(),
+			createReadFileTool(),
+			createSearchFilesTool(),
+			createSearchFileContentTool(),
+			createUpdateProgressTool({
+				onProgress: async (text) => {
+					if (!this.activeWebview) {
+						return;
+					}
+					await this.activeWebview.postMessage({
+						type: 'chat:toolStatus',
+						text,
+						transient: false
+					});
+				}
+			}),
+			createManageTodosTool({
+				getCurrentSessionId: () => this.sessionStore.getCurrentSessionId(),
+				getTodos: (sessionId) => this.sessionStore.getTodos(sessionId),
+				addTodo: (sessionId, text) => this.sessionStore.addTodo(sessionId, text),
+				deleteTodo: (sessionId, todoId) => this.sessionStore.deleteTodo(sessionId, todoId),
+				updateTodoText: (sessionId, todoId, text) => this.sessionStore.updateTodoText(sessionId, todoId, text),
+				setTodoCompleted: (sessionId, todoId, completed) =>
+					this.sessionStore.setTodoCompleted(sessionId, todoId, completed),
+				clearTodos: (sessionId, completedOnly) => this.sessionStore.clearTodos(sessionId, completedOnly),
+				replaceTodos: (sessionId, todos) => this.sessionStore.replaceTodos(sessionId, todos),
+				onTodosChanged: async (sessionId) => {
+					await this.postTodosToActiveWebview(sessionId);
+				}
+			})
+		]);
+	}
 
 	public dispose(): void {
 		void this.gateway.dispose();
@@ -29,6 +71,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		_context: vscode.WebviewViewResolveContext,
 		_token: vscode.CancellationToken
 	): void {
+		this.activeWebview = webviewView.webview;
 		webviewView.webview.options = {
 			enableScripts: true,
 			localResourceRoots: [this.extensionUri]
@@ -127,6 +170,18 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
+		if (message.type === 'chat:cancelGeneration') {
+			if (this.isGenerating) {
+				this.cancelGenerationRequested = true;
+				await webview.postMessage({
+					type: 'chat:toolStatus',
+					text: '正在取消当前回复...',
+					transient: false
+				});
+			}
+			return;
+		}
+
 		if (message.type !== 'chat:userMessage') {
 			return;
 		}
@@ -151,6 +206,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		this.isGenerating = true;
+		this.cancelGenerationRequested = false;
 		const startedAt = Date.now();
 		await webview.postMessage({ type: 'chat:assistantStart' });
 
@@ -163,7 +219,13 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 				onToolStart: async (toolName) => {
 					await webview.postMessage({
 						type: 'chat:toolStatus',
-						text: `正在调用工具 \`${toolName}\`...`
+						text: `正在调用工具 \`${toolName}\`...`,
+						transient: true
+					});
+				},
+				onToolEnd: async () => {
+					await webview.postMessage({
+						type: 'chat:toolStatusDone'
 					});
 				},
 				onAssistantDelta: async (delta) => {
@@ -171,7 +233,8 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 						type: 'chat:assistantDelta',
 						text: delta
 					});
-				}
+				},
+				shouldCancel: () => this.cancelGenerationRequested
 			});
 
 			if (!assistantText.trim()) {
@@ -188,9 +251,17 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			});
 		} catch (error) {
 			const messageText = error instanceof Error ? error.message : 'Unknown error';
+			if (messageText.includes('用户已取消')) {
+				await webview.postMessage({
+					type: 'chat:assistantDelta',
+					text: '已取消本次回复。'
+				});
+				return;
+			}
 			await this.postError(webview, `请求 DeepSeek 失败：${messageText}`);
 		} finally {
 			this.isGenerating = false;
+			this.cancelGenerationRequested = false;
 			await webview.postMessage({ type: 'chat:assistantDone' });
 		}
 	}
@@ -265,9 +336,25 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		});
 	}
 
+	private async postTodos(webview: vscode.Webview, sessionId: string): Promise<void> {
+		await webview.postMessage({
+			type: 'chat:todos',
+			sessionId,
+			todos: this.sessionStore.getTodos(sessionId)
+		});
+	}
+
+	private async postTodosToActiveWebview(sessionId: string): Promise<void> {
+		if (!this.activeWebview) {
+			return;
+		}
+		await this.postTodos(this.activeWebview, sessionId);
+	}
+
 	private async syncSessionsToWebview(webview: vscode.Webview): Promise<void> {
 		const currentSessionId = this.sessionStore.getCurrentSessionId();
 		await this.postSessionSummary(webview);
+		await this.postTodos(webview, currentSessionId);
 		const messages = await this.gateway.loadSessionMessages(currentSessionId);
 		await webview.postMessage({
 			type: 'chat:sessionHistory',

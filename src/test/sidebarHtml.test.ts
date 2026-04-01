@@ -16,7 +16,39 @@ suite('getSidebarHtml', () => {
 		assert.ok(nonceMatch);
 		assert.ok(html.includes('<title>Navi Chat</title>'));
 		assert.ok(html.includes('acquireVsCodeApi()'));
-		assert.ok(html.includes('你好，我是 Navi。你可以直接描述需求、贴报错或让我改代码。'));
+		assert.ok(
+			html.includes(
+				'你今天想构建什么？直接贴需求、报错或相关代码；我会先读取项目上下文，并在聊天区实时同步当前进度，再给你可立即执行的下一步。'
+			)
+		);
+		assert.ok(html.includes('id="todoPanel"'));
+		assert.ok(html.includes('id="composerShell"'));
+		assert.ok(html.includes('id="todoToggleBtn"'));
+		assert.ok(html.includes('id="reviewBtn"'));
+		assert.ok(html.includes("type: 'chat:cancelGeneration'"));
+		assert.ok(html.includes("join('\\\\n')"));
+		assert.ok(html.includes("if (message.type === 'chat:todos')"));
+		assert.ok(html.includes("chatBody.querySelectorAll('.tool-status').forEach((node) => node.remove());"));
+		assert.ok(html.includes('let transientToolStatusEl = null;'));
+		assert.ok(html.includes('let progressSummaryEl = null;'));
+		assert.ok(html.includes('function appendTransientToolStatus(text)'));
+		assert.ok(html.includes('function fadeTransientToolStatus()'));
+		assert.ok(html.includes('function setProgressCollapsed(collapsed)'));
+		assert.ok(html.includes('function refreshProgressSummary()'));
+		assert.ok(html.includes('function setTodoCollapsed(collapsed)'));
+		assert.ok(html.includes("todoToggleBtn.textContent = (todoCollapsed ? '▸' : '▾') + ' TODO';"));
+		assert.ok(html.includes("el.className = 'tool-status progress-entry';"));
+		assert.ok(html.includes("el.className = 'tool-status elapsed-status progress-entry';"));
+		assert.ok(html.includes('setTodoCollapsed(false);'));
+		assert.ok(html.includes("appendToolStatus(message.text || '', !!message.transient);"));
+		assert.ok(html.includes('function clearTransientToolStatus()'));
+		assert.ok(html.includes("if (message.type === 'chat:toolStatusDone')"));
+		assert.ok(html.includes('setProgressCollapsed(true);'));
+		assert.ok(html.includes('function renderMarkdown(raw)'));
+		assert.ok(html.includes('const codeTokenPattern = /^@@(?:MD_CODE_|MDCODE)(\\\\d+)@@$/;'));
+		assert.ok(html.includes("activeAssistantMessage.innerHTML = renderMarkdown(nextRaw);"));
+		assert.ok(html.includes("el.dataset.rawMarkdown = text || '';"));
+		assert.ok(html.includes("el.innerHTML = renderMarkdown(text || '');"));
 		assert.ok(html.includes('webview:/tmp/navi-extension/media/sidebar.css'));
 		assert.ok(html.includes("style-src vscode-webview://test-source; script-src 'nonce-"));
 		assert.ok(html.includes(`<script nonce="${nonceMatch?.[1]}">`));

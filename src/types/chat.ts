@@ -11,6 +11,14 @@ export type ChatSession = {
 	createdAt: number;
 };
 
+export type ChatTodo = {
+	id: string;
+	text: string;
+	completed: boolean;
+	createdAt: number;
+	completedAt?: number;
+};
+
 export type RenderableMessage = {
 	role: 'user' | 'assistant';
 	text: string;

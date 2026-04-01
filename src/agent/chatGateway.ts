@@ -5,17 +5,21 @@ import { type DynamicTool, type StructuredToolInterface } from '@langchain/core/
 import { createReactAgent } from '@langchain/langgraph/prebuilt';
 import { MemorySaver } from '@langchain/langgraph';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
+import { SYSTEM_PROMPT } from './config';
 import { parseMcpServerSettings, toEnabledMcpConnections } from '../mcp/config';
 import type { RenderableMessage } from '../types/chat';
 import { extractMessageText, getMessageType } from '../utils/message';
 
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
-const DEFAULT_DEEPSEEK_MODEL = 'deepseek-chat';
-const SYSTEM_PROMPT = 'You are Navi, a practical coding assistant. Keep answers concise, actionable, and developer-friendly.';
+const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
+const DEFAULT_RECURSION_LIMIT = 150;
+const DEFAULT_STREAM_RETRY_LIMIT = 1;
 
 type StreamCallbacks = {
 	onToolStart?: (toolName: string) => Promise<void>;
+	onToolEnd?: () => Promise<void>;
 	onAssistantDelta?: (delta: string) => Promise<void>;
+	shouldCancel?: () => boolean;
 };
 
 export class DeepSeekChatGateway {
@@ -27,46 +31,64 @@ export class DeepSeekChatGateway {
 	constructor(private readonly tools: DynamicTool[]) {}
 
 	public async streamAssistantReply(sessionId: string, prompt: string, callbacks: StreamCallbacks = {}): Promise<string> {
-		const agent = await this.getOrCreateAgent();
-		const stream = await agent.streamEvents(
-			{
-				messages: [new HumanMessage(prompt)]
-			},
-			{
-				version: 'v2',
-				configurable: {
-					thread_id: sessionId
-				}
-			}
-		);
-
 		let assistantText = '';
-		for await (const chunk of stream) {
-			if (chunk.event === 'on_tool_start') {
-				const toolName = chunk.name ?? 'unknown_tool';
-				if (callbacks.onToolStart) {
-					await callbacks.onToolStart(toolName);
+		for (let attempt = 0; attempt <= DEFAULT_STREAM_RETRY_LIMIT; attempt += 1) {
+			try {
+				this.ensureNotCancelled(callbacks);
+				const agent = await this.getOrCreateAgent();
+				const recursionLimit = this.resolveRecursionLimit(vscode.workspace.getConfiguration('navi'));
+				const stream = await agent.streamEvents(
+					{
+						messages: [new HumanMessage(prompt)]
+					},
+					{
+						version: 'v2',
+						recursionLimit,
+						configurable: {
+							thread_id: sessionId
+						}
+					}
+				);
+
+				for await (const chunk of stream) {
+					this.ensureNotCancelled(callbacks);
+					if (chunk.event === 'on_tool_start') {
+						const toolName = chunk.name ?? 'unknown_tool';
+						if (callbacks.onToolStart) {
+							await callbacks.onToolStart(toolName);
+						}
+						continue;
+					}
+
+					if (chunk.event === 'on_tool_end') {
+						if (callbacks.onToolEnd) {
+							await callbacks.onToolEnd();
+						}
+						continue;
+					}
+
+					if (chunk.event !== 'on_chat_model_stream') {
+						continue;
+					}
+
+					const modelChunk = chunk.data?.chunk;
+					const delta = extractMessageText(modelChunk?.content as MessageContent | undefined);
+					if (!delta) {
+						continue;
+					}
+
+					assistantText += delta;
+					if (callbacks.onAssistantDelta) {
+						await callbacks.onAssistantDelta(delta);
+					}
 				}
-				continue;
-			}
-
-			if (chunk.event === 'on_tool_end') {
-				continue;
-			}
-
-			if (chunk.event !== 'on_chat_model_stream') {
-				continue;
-			}
-
-			const modelChunk = chunk.data?.chunk;
-			const delta = extractMessageText(modelChunk?.content as MessageContent | undefined);
-			if (!delta) {
-				continue;
-			}
-
-			assistantText += delta;
-			if (callbacks.onAssistantDelta) {
-				await callbacks.onAssistantDelta(delta);
+				return assistantText;
+			} catch (error) {
+				if (this.shouldRetryStreamError(error) && attempt < DEFAULT_STREAM_RETRY_LIMIT && !assistantText.trim()) {
+					await this.resetAgentForRetry();
+					continue;
+				}
+				throw this.normalizeStreamError(error);
 			}
 		}
 
@@ -111,12 +133,7 @@ export class DeepSeekChatGateway {
 	}
 
 	public async dispose(): Promise<void> {
-		if (!this.mcpClient) {
-			return;
-		}
-
-		await this.mcpClient.close();
-		this.mcpClient = undefined;
+		await this.disposeMcpClient();
 	}
 
 	private async getOrCreateAgent(): Promise<ReturnType<typeof createReactAgent>> {
@@ -202,6 +219,21 @@ export class DeepSeekChatGateway {
 		return await this.mcpClient.getTools();
 	}
 
+	private async resetAgentForRetry(): Promise<void> {
+		this.agent = undefined;
+		this.agentInitPromise = undefined;
+		await this.disposeMcpClient();
+	}
+
+	private async disposeMcpClient(): Promise<void> {
+		if (!this.mcpClient) {
+			return;
+		}
+
+		await this.mcpClient.close();
+		this.mcpClient = undefined;
+	}
+
 	private resolveApiKey(config: vscode.WorkspaceConfiguration): string {
 		const configuredApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
 		if (configuredApiKey) {
@@ -209,5 +241,62 @@ export class DeepSeekChatGateway {
 		}
 
 		return (process.env.DEEPSEEK_API_KEY ?? '').trim();
+	}
+
+	private resolveRecursionLimit(config: vscode.WorkspaceConfiguration): number {
+		const value = config.get<number>('recursionLimit', DEFAULT_RECURSION_LIMIT);
+		if (!Number.isFinite(value)) {
+			return DEFAULT_RECURSION_LIMIT;
+		}
+		const integer = Math.trunc(value);
+		if (integer < 10) {
+			return 10;
+		}
+		if (integer > 200) {
+			return 200;
+		}
+		return integer;
+	}
+
+	private shouldRetryStreamError(error: unknown): boolean {
+		const message = this.getErrorMessage(error).toLowerCase();
+		if (message.includes('__navi_cancelled__')) {
+			return false;
+		}
+		return (
+			message.includes('terminated') ||
+			message.includes('abort') ||
+			message.includes('aborted') ||
+			message.includes('timeout') ||
+			message.includes('timed out') ||
+			message.includes('econnreset') ||
+			message.includes('socket hang up') ||
+			message.includes('fetch failed')
+		);
+	}
+
+	private normalizeStreamError(error: unknown): Error {
+		const message = this.getErrorMessage(error);
+		const lower = message.toLowerCase();
+		if (lower.includes('__navi_cancelled__')) {
+			return new Error('用户已取消本次生成。');
+		}
+		if (lower.includes('terminated') || lower.includes('abort')) {
+			return new Error('连接被中断（terminated）。已自动重试一次；如仍失败，请重试或降低任务复杂度。');
+		}
+		if (lower.includes('timeout') || lower.includes('timed out')) {
+			return new Error('请求超时。请重试，或拆分为更小的步骤后再请求。');
+		}
+		return error instanceof Error ? error : new Error(message);
+	}
+
+	private getErrorMessage(error: unknown): string {
+		return error instanceof Error ? error.message : String(error);
+	}
+
+	private ensureNotCancelled(callbacks: StreamCallbacks): void {
+		if (callbacks.shouldCancel?.()) {
+			throw new Error('__NAVI_CANCELLED__');
+		}
 	}
 }
