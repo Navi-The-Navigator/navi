@@ -26,6 +26,7 @@ export class ChatSessionStore {
 		};
 
 		this.sessions.unshift(session);
+		this.currentSessionId = session.id;
 		return session;
 	}
 
