@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, type MessageContent } from '@langchain/core/messages';
-import { type DynamicTool } from '@langchain/core/tools';
+import { type DynamicTool, type StructuredToolInterface } from '@langchain/core/tools';
 import { createReactAgent } from '@langchain/langgraph/prebuilt';
 import { MemorySaver } from '@langchain/langgraph';
+import { MultiServerMCPClient, type Connection } from '@langchain/mcp-adapters';
 import type { RenderableMessage } from '../types/chat';
 import { extractMessageText, getMessageType } from '../utils/message';
 
@@ -18,12 +19,14 @@ type StreamCallbacks = {
 
 export class DeepSeekChatGateway {
 	private agent?: ReturnType<typeof createReactAgent>;
+	private agentInitPromise?: Promise<ReturnType<typeof createReactAgent>>;
+	private mcpClient?: MultiServerMCPClient;
 	private readonly checkpointer = new MemorySaver();
 
 	constructor(private readonly tools: DynamicTool[]) {}
 
 	public async streamAssistantReply(sessionId: string, prompt: string, callbacks: StreamCallbacks = {}): Promise<string> {
-		const agent = this.getOrCreateAgent();
+		const agent = await this.getOrCreateAgent();
 		const stream = await agent.streamEvents(
 			{
 				messages: [new HumanMessage(prompt)]
@@ -106,11 +109,34 @@ export class DeepSeekChatGateway {
 			.filter((item): item is RenderableMessage => item !== undefined);
 	}
 
-	private getOrCreateAgent(): ReturnType<typeof createReactAgent> {
+	public async dispose(): Promise<void> {
+		if (!this.mcpClient) {
+			return;
+		}
+
+		await this.mcpClient.close();
+		this.mcpClient = undefined;
+	}
+
+	private async getOrCreateAgent(): Promise<ReturnType<typeof createReactAgent>> {
 		if (this.agent) {
 			return this.agent;
 		}
 
+		if (this.agentInitPromise) {
+			return this.agentInitPromise;
+		}
+
+		this.agentInitPromise = this.createAgent();
+		try {
+			this.agent = await this.agentInitPromise;
+			return this.agent;
+		} finally {
+			this.agentInitPromise = undefined;
+		}
+	}
+
+	private async createAgent(): Promise<ReturnType<typeof createReactAgent>> {
 		const config = vscode.workspace.getConfiguration('navi');
 		const apiKey = (process.env.DEEPSEEK_API_KEY ?? config.get<string>('deepseekApiKey') ?? '').trim();
 		if (!apiKey) {
@@ -128,13 +154,48 @@ export class DeepSeekChatGateway {
 			configuration: { baseURL }
 		});
 
-		this.agent = createReactAgent({
+		const tools = [...this.tools, ...(await this.loadMcpTools(config))];
+		return createReactAgent({
 			llm: chatModel,
-			tools: this.tools,
+			tools,
 			prompt: SYSTEM_PROMPT,
 			checkpointer: this.checkpointer
 		});
+	}
 
-		return this.agent;
+	private async loadMcpTools(config: vscode.WorkspaceConfiguration): Promise<StructuredToolInterface[]> {
+		const mcpEnabled = config.get<boolean>('mcpEnabled', false);
+		if (!mcpEnabled) {
+			return [];
+		}
+
+		const mcpServersJson = (process.env.NAVI_MCP_SERVERS_JSON ?? config.get<string>('mcpServersJson') ?? '').trim();
+		if (!mcpServersJson) {
+			throw new Error(
+				'MCP 已启用，但未找到服务配置。请设置环境变量 NAVI_MCP_SERVERS_JSON 或在 Settings 中配置 navi.mcpServersJson。'
+			);
+		}
+
+		let parsedServers: unknown;
+		try {
+			parsedServers = JSON.parse(mcpServersJson);
+		} catch {
+			throw new Error('navi.mcpServersJson 不是有效的 JSON。');
+		}
+
+		if (!parsedServers || typeof parsedServers !== 'object' || Array.isArray(parsedServers)) {
+			throw new Error(
+				'navi.mcpServersJson 必须是对象，例如 {"math":{"transport":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-math"]}}。'
+			);
+		}
+
+		this.mcpClient = new MultiServerMCPClient({
+			mcpServers: parsedServers as Record<string, Connection>,
+			onConnectionError: 'ignore',
+			prefixToolNameWithServerName: true,
+			useStandardContentBlocks: true
+		});
+
+		return await this.mcpClient.getTools();
 	}
 }

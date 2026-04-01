@@ -38,6 +38,16 @@
           "minimum": 0,
           "maximum": 2,
           "description": "Sampling temperature for model responses."
+        },
+        "navi.mcpEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable loading tools from configured MCP servers."
+        },
+        "navi.mcpServersJson": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "MCP server config JSON. Example: `{\"math\":{\"transport\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-math\"]}}`"
         }
       }
     },
@@ -93,6 +103,7 @@
   "dependencies": {
     "@langchain/core": "^1.1.38",
     "@langchain/langgraph": "^1.2.6",
+    "@langchain/mcp-adapters": "^1.1.3",
     "@langchain/openai": "^1.4.1"
   }
 }

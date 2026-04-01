@@ -14,6 +14,10 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 	constructor(private readonly extensionUri: vscode.Uri) {}
 
+	public dispose(): void {
+		void this.gateway.dispose();
+	}
+
 	public resolveWebviewView(
 		webviewView: vscode.WebviewView,
 		_context: vscode.WebviewViewResolveContext,
@@ -205,9 +209,10 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Congratulations, your extension "navi" is now active!');
 
+	const sidebarProvider = new NaviSidebarViewProvider(context.extensionUri);
 	const viewProvider = vscode.window.registerWebviewViewProvider(
 		NaviSidebarViewProvider.viewType,
-		new NaviSidebarViewProvider(context.extensionUri)
+		sidebarProvider
 	);
 
 	const disposable = vscode.commands.registerCommand('navi.helloWorld', () => {
@@ -216,6 +221,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(viewProvider);
 	context.subscriptions.push(disposable);
+	context.subscriptions.push({
+		dispose: () => sidebarProvider.dispose()
+	});
 }
 
 export function deactivate() {}

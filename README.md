@@ -87,6 +87,25 @@ yarn watch
 2. 按 `F5` 启动 Extension Development Host
 3. 在左侧 Activity Bar 找到 `Navi` 图标并打开侧边栏
 
+## MCP 接入配置（可选）
+
+Navi 支持通过 MCP 为 Agent 注入额外工具。
+
+1. 在 VS Code Settings 中开启 `navi.mcpEnabled`
+2. 配置 `navi.mcpServersJson`，例如：
+
+```json
+{
+  "math": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-math"]
+  }
+}
+```
+
+也可以通过环境变量 `NAVI_MCP_SERVERS_JSON` 提供同样的 JSON 字符串。
+
 ## 项目结构
 
 ```text
