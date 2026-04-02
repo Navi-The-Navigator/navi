@@ -311,11 +311,28 @@ body {
 .loading.show {
 	display: block;
 }
+.tool-call-slot {
+	align-self: flex-start;
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	min-height: 18px;
+	line-height: 18px;
+	padding: 0;
+	opacity: 0.9;
+	transition: opacity 160ms ease;
+}
+.tool-call-slot.empty {
+	opacity: 0;
+}
+.tool-call-slot.hidden {
+	display: none;
+}
 .tool-status {
 	align-self: flex-start;
 	font-size: 11px;
 	color: var(--vscode-descriptionForeground);
 	padding: 2px 0;
+	flex-shrink: 0;
 }
 .transient-tool-status {
 	opacity: 0.9;
@@ -356,10 +373,34 @@ body {
 	transition: max-height 180ms ease, opacity 140ms ease, padding 180ms ease, margin 180ms ease;
 }
 .progress-entry {
-	max-height: 28px;
+	max-height: 200px;
 	opacity: 1;
-	overflow: hidden;
+	overflow: visible;
 	transition: max-height 220ms ease, opacity 180ms ease, padding 220ms ease, margin 220ms ease;
+}
+.progress-entry-appear {
+	animation: progressEntryAppear 180ms ease;
+}
+@keyframes progressEntryAppear {
+	0% {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	100% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+.progress-entry.progress-hidden {
+	max-height: 0;
+	opacity: 0;
+	padding: 0;
+	margin: 0;
+	overflow: hidden;
+	pointer-events: none;
+}
+.progress-entry.progress-collapsed-done {
+	pointer-events: none;
 }
 .progress-summary {
 	align-self: flex-start;
@@ -406,7 +447,10 @@ body {
 	display: flex;
 }
 .todo-panel.collapsed .todo-list {
-	display: none;
+	max-height: 0;
+	opacity: 0;
+	transform: translateY(-4px);
+	pointer-events: none;
 }
 .todo-header {
 	display: flex;
@@ -433,6 +477,9 @@ body {
 	gap: 4px;
 	max-height: 132px;
 	overflow-y: auto;
+	opacity: 1;
+	transform: translateY(0);
+	transition: max-height 220ms ease, opacity 180ms ease, transform 220ms ease;
 }
 .todo-item {
 	display: flex;
