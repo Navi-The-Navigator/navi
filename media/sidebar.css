@@ -474,20 +474,40 @@ body {
 	font-size: 11px;
 	cursor: pointer;
 }
-.focus-footer-btn.primary {
-	background: var(--vscode-button-background);
-	color: var(--vscode-button-foreground);
-	border-color: var(--vscode-button-background);
-}
 .focus-footer-btn:hover:not(:disabled) {
 	background: var(--vscode-toolbar-hoverBackground);
-}
-.focus-footer-btn.primary:hover:not(:disabled) {
-	background: var(--vscode-button-hoverBackground);
 }
 .focus-footer-btn:disabled {
 	opacity: 0.5;
 	cursor: default;
+}
+.focus-target-jump.focus-review-btn,
+.focus-footer-btn.focus-review-btn {
+	border-color: #145c29;
+	background: rgba(31, 122, 54, 0.22);
+	color: #ffffff;
+}
+.focus-target-jump.focus-review-btn:hover,
+.focus-footer-btn.focus-review-btn:hover:not(:disabled) {
+	background: rgba(31, 122, 54, 0.3);
+}
+.focus-target-jump.focus-help-btn,
+.focus-footer-btn.focus-help-btn {
+	border-color: #084b9a;
+	background: rgba(11, 99, 209, 0.22);
+	color: #ffffff;
+}
+.focus-target-jump.focus-help-btn:hover,
+.focus-footer-btn.focus-help-btn:hover:not(:disabled) {
+	background: rgba(11, 99, 209, 0.3);
+}
+.focus-footer-btn.focus-proceed-btn {
+	border-color: #7a1a12;
+	background: rgba(180, 35, 24, 0.22);
+	color: #ffffff;
+}
+.focus-footer-btn.focus-proceed-btn:hover:not(:disabled) {
+	background: rgba(180, 35, 24, 0.3);
 }
 .tool-call-slot {
 	align-self: flex-start;

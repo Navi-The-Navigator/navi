@@ -31,9 +31,9 @@ export function getFocusHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 		<div id="focusSummary" class="focus-page-summary">暂无高亮区域</div>
 		<div id="focusList" class="focus-page-list"></div>
 		<div class="focus-page-footer">
-			<button id="focusReviewSelectedBtn" class="focus-footer-btn" type="button">Review (0/0)</button>
-			<button id="focusHelpSelectedBtn" class="focus-footer-btn" type="button">Help (0/0)</button>
-			<button id="focusProceedBtn" class="focus-footer-btn primary" type="button">Proceed Anyway</button>
+			<button id="focusProceedBtn" class="focus-footer-btn focus-proceed-btn" type="button">Proceed Anyway</button>
+			<button id="focusHelpSelectedBtn" class="focus-footer-btn focus-help-btn" type="button">Help (0/0)</button>
+			<button id="focusReviewSelectedBtn" class="focus-footer-btn focus-review-btn" type="button">Review (0/0)</button>
 		</div>
 	</div>
 	<script nonce="${nonce}">
@@ -138,21 +138,9 @@ export function getFocusHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 					});
 				});
 
-				const reviewButton = document.createElement('button');
-				reviewButton.type = 'button';
-				reviewButton.className = 'focus-target-jump';
-				reviewButton.textContent = 'Review';
-				reviewButton.addEventListener('click', () => {
-					vscode.postMessage({
-						type: 'focus:reviewById',
-						sessionId: currentSessionId,
-						focusTargetId: target.id
-					});
-				});
-
 				const helpButton = document.createElement('button');
 				helpButton.type = 'button';
-				helpButton.className = 'focus-target-jump';
+				helpButton.className = 'focus-target-jump focus-help-btn';
 				helpButton.textContent = 'Help';
 				helpButton.addEventListener('click', () => {
 					vscode.postMessage({
@@ -162,9 +150,21 @@ export function getFocusHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 					});
 				});
 
+				const reviewButton = document.createElement('button');
+				reviewButton.type = 'button';
+				reviewButton.className = 'focus-target-jump focus-review-btn';
+				reviewButton.textContent = 'Review';
+				reviewButton.addEventListener('click', () => {
+					vscode.postMessage({
+						type: 'focus:reviewById',
+						sessionId: currentSessionId,
+						focusTargetId: target.id
+					});
+				});
+
 				actionRow.appendChild(jumpButton);
-				actionRow.appendChild(reviewButton);
 				actionRow.appendChild(helpButton);
+				actionRow.appendChild(reviewButton);
 				card.appendChild(topRow);
 				card.appendChild(location);
 				card.appendChild(instruction);

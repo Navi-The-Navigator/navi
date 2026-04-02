@@ -46,10 +46,10 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	});
 	private readonly focusSwitcherStatusBar = vscode.window.createStatusBarItem(
 		vscode.StatusBarAlignment.Right,
-		20
+		100
 	);
-	private readonly focusNextStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 21);
-	private readonly focusPrevStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 22);
+	private readonly focusNextStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 80);
+	private readonly focusPrevStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
 	private readonly disposables: vscode.Disposable[] = [];
 	private isGenerating = false;
 	private cancelGenerationRequested = false;
