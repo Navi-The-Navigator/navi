@@ -38,7 +38,6 @@ suite('createGetFocusCodeRegionsTool', () => {
 				endLine: 14,
 				title: 'Block A',
 				instruction: 'Edit A',
-				resolvedBy: 'lines',
 				updatedAt: Date.now()
 			}
 		];

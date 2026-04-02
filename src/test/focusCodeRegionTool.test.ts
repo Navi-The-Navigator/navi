@@ -44,7 +44,6 @@ suite('createFocusCodeRegionTool', () => {
 			endLine: 1,
 			title: 'Next coding task',
 			instruction: 'Implement logic here',
-			resolvedBy: 'lines',
 			updatedAt: Date.now()
 		};
 

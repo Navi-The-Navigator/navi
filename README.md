@@ -129,10 +129,12 @@ Navi 当前暴露了以下主要配置：
 | --- | --- | --- |
 | `navi.deepseekApiKey` | DeepSeek API Key | `""` |
 | `navi.deepseekBaseUrl` | DeepSeek OpenAI-compatible base URL | `https://api.deepseek.com/v1` |
-| `navi.deepseekModel` | DeepSeek model name | `deepseek-chat` |
+| `navi.deepseekModel` | DeepSeek model name | `deepseek-reasoner` |
 | `navi.temperature` | Sampling temperature | `0.2` |
 | `navi.mcpEnabled` | Enable MCP-based tools | `false` |
 | `navi.mcpServersJson` | JSON string describing MCP servers | `""` |
+
+也可以在 Navi 面板的设置入口里直接修改 API Key、LLM API 端点和模型名，而不需要手动打开 JSON 设置文件。
 
 ## MCP Configuration
 

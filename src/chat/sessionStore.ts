@@ -1,9 +1,17 @@
 import { createThreadId, createTodoId } from '../utils/id';
-import type { ChatSession, ChatTodo } from '../types/chat';
+import type { ChatSession, ChatSessionViewState, ChatStatusEntry, ChatTodo, RenderableMessage } from '../types/chat';
+
+type ChatSessionViewStateInternal = ChatSessionViewState & {
+	nextRunId: number;
+	pendingAssistantError?: string;
+};
+
+const DEFAULT_EMPTY_ASSISTANT_MESSAGE = '我暂时没有生成可显示的文本响应。';
 
 export class ChatSessionStore {
 	private readonly sessions: ChatSession[] = [];
 	private readonly todosBySessionId = new Map<string, ChatTodo[]>();
+	private readonly viewStateBySessionId = new Map<string, ChatSessionViewStateInternal>();
 	private currentSessionId = '';
 
 	constructor() {
@@ -28,6 +36,7 @@ export class ChatSessionStore {
 
 		this.sessions.unshift(session);
 		this.todosBySessionId.set(session.id, []);
+		this.viewStateBySessionId.set(session.id, this.createViewState());
 		this.currentSessionId = session.id;
 		return session;
 	}
@@ -71,6 +80,7 @@ export class ChatSessionStore {
 		const deletingCurrent = this.currentSessionId === sessionId;
 		this.sessions.splice(index, 1);
 		this.todosBySessionId.delete(sessionId);
+		this.viewStateBySessionId.delete(sessionId);
 
 		if (this.sessions.length === 0) {
 			const session = this.createSession();
@@ -88,6 +98,99 @@ export class ChatSessionStore {
 
 	public getTodos(sessionId: string): ChatTodo[] {
 		return [...(this.todosBySessionId.get(sessionId) ?? [])];
+	}
+
+	public getViewState(sessionId: string): ChatSessionViewState {
+		const state = this.ensureViewState(sessionId);
+		return {
+			messages: state.messages.map((message) => ({ ...message })),
+			statusEntries: state.statusEntries.map((entry) => ({ ...entry })),
+			isGenerating: state.isGenerating,
+			activeAssistantText: state.activeAssistantText,
+			activeRunId: state.activeRunId
+		};
+	}
+
+	public appendMessage(sessionId: string, role: RenderableMessage['role'], text: string): RenderableMessage | undefined {
+		const normalized = text.trim();
+		if (!normalized) {
+			return undefined;
+		}
+		const state = this.ensureViewState(sessionId);
+		const message: RenderableMessage = { role, text: normalized };
+		state.messages.push(message);
+		return { ...message };
+	}
+
+	public startAssistantReply(sessionId: string): number {
+		const state = this.ensureViewState(sessionId);
+		state.isGenerating = true;
+		state.activeAssistantText = '';
+		state.pendingAssistantError = undefined;
+		state.activeRunId = state.nextRunId;
+		state.nextRunId += 1;
+		return state.activeRunId;
+	}
+
+	public appendAssistantDelta(sessionId: string, text: string): string {
+		if (!text) {
+			return this.ensureViewState(sessionId).activeAssistantText;
+		}
+		const state = this.ensureViewState(sessionId);
+		state.activeAssistantText += text;
+		return state.activeAssistantText;
+	}
+
+	public appendStatusEntry(sessionId: string, kind: ChatStatusEntry['kind'], text: string): ChatStatusEntry | undefined {
+		const normalized = text.trim();
+		if (!normalized) {
+			return undefined;
+		}
+		const state = this.ensureViewState(sessionId);
+		if (!state.activeRunId) {
+			state.activeRunId = state.nextRunId;
+			state.nextRunId += 1;
+		}
+		const entry: ChatStatusEntry = {
+			kind,
+			text: normalized,
+			runId: state.activeRunId,
+			createdAt: Date.now()
+		};
+		state.statusEntries.push(entry);
+		return { ...entry };
+	}
+
+	public setAssistantError(sessionId: string, text: string): void {
+		const normalized = text.trim();
+		if (!normalized) {
+			return;
+		}
+		const state = this.ensureViewState(sessionId);
+		if (state.activeAssistantText.trim()) {
+			state.pendingAssistantError = normalized;
+			return;
+		}
+		state.activeAssistantText = normalized;
+	}
+
+	public finishAssistantReply(sessionId: string): void {
+		const state = this.ensureViewState(sessionId);
+		const finalAssistantText = state.activeAssistantText.trim() || DEFAULT_EMPTY_ASSISTANT_MESSAGE;
+		state.messages.push({
+			role: 'assistant',
+			text: finalAssistantText
+		});
+		if (state.pendingAssistantError) {
+			state.messages.push({
+				role: 'assistant',
+				text: state.pendingAssistantError
+			});
+		}
+		state.isGenerating = false;
+		state.activeAssistantText = '';
+		state.activeRunId = 0;
+		state.pendingAssistantError = undefined;
 	}
 
 	public addTodo(sessionId: string, text: string): ChatTodo | undefined {
@@ -181,5 +284,25 @@ export class ChatSessionStore {
 			this.todosBySessionId.set(sessionId, todos);
 		}
 		return todos;
+	}
+
+	private createViewState(): ChatSessionViewStateInternal {
+		return {
+			messages: [],
+			statusEntries: [],
+			isGenerating: false,
+			activeAssistantText: '',
+			activeRunId: 0,
+			nextRunId: 1
+		};
+	}
+
+	private ensureViewState(sessionId: string): ChatSessionViewStateInternal {
+		let state = this.viewStateBySessionId.get(sessionId);
+		if (!state) {
+			state = this.createViewState();
+			this.viewStateBySessionId.set(sessionId, state);
+		}
+		return state;
 	}
 }

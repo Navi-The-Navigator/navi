@@ -31,7 +31,6 @@ export function getFocusHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 		<div id="focusSummary" class="focus-page-summary">暂无高亮区域</div>
 		<div id="focusList" class="focus-page-list"></div>
 		<div class="focus-page-footer">
-			<button id="focusProceedBtn" class="focus-footer-btn focus-proceed-btn" type="button">Proceed Anyway</button>
 			<button id="focusHelpSelectedBtn" class="focus-footer-btn focus-help-btn" type="button">Help (0/0)</button>
 			<button id="focusReviewSelectedBtn" class="focus-footer-btn focus-review-btn" type="button">Review (0/0)</button>
 		</div>
@@ -44,7 +43,6 @@ export function getFocusHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 		const focusNextBtn = document.getElementById('focusNextBtn');
 		const focusReviewSelectedBtn = document.getElementById('focusReviewSelectedBtn');
 		const focusHelpSelectedBtn = document.getElementById('focusHelpSelectedBtn');
-		const focusProceedBtn = document.getElementById('focusProceedBtn');
 
 		let currentSessionId = '';
 		let activeIndex = -1;
@@ -62,7 +60,6 @@ export function getFocusHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 			focusHelpSelectedBtn.textContent = 'Help (' + selectedCount + '/' + totalCount + ')';
 			focusReviewSelectedBtn.disabled = selectedCount === 0;
 			focusHelpSelectedBtn.disabled = selectedCount === 0;
-			focusProceedBtn.disabled = selectedCount === 0;
 		}
 
 		function render() {
@@ -196,14 +193,6 @@ export function getFocusHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 				return;
 			}
 			vscode.postMessage({ type: 'focus:helpSelected', sessionId: currentSessionId, focusTargetIds });
-		});
-
-		focusProceedBtn.addEventListener('click', () => {
-			const focusTargetIds = getSelectedTargetIds();
-			if (focusTargetIds.length === 0) {
-				return;
-			}
-			vscode.postMessage({ type: 'focus:proceedSelected', sessionId: currentSessionId, focusTargetIds });
 		});
 
 		window.addEventListener('message', (event) => {

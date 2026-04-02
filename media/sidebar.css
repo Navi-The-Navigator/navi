@@ -187,6 +187,11 @@ body {
 	flex-direction: column;
 	gap: 10px;
 }
+.pin-spacer {
+	height: 0;
+	flex: 0 0 auto;
+	pointer-events: none;
+}
 .message {
 	max-width: 100%;
 	padding: 0;
@@ -500,14 +505,6 @@ body {
 .focus-target-jump.focus-help-btn:hover,
 .focus-footer-btn.focus-help-btn:hover:not(:disabled) {
 	background: rgba(11, 99, 209, 0.3);
-}
-.focus-footer-btn.focus-proceed-btn {
-	border-color: #7a1a12;
-	background: rgba(180, 35, 24, 0.22);
-	color: #ffffff;
-}
-.focus-footer-btn.focus-proceed-btn:hover:not(:disabled) {
-	background: rgba(180, 35, 24, 0.3);
 }
 .tool-call-slot {
 	align-self: flex-start;

@@ -7,7 +7,6 @@ export type FocusCodeRegionInput = {
 	path?: string;
 	startLine?: number;
 	endLine?: number;
-	anchorText?: string;
 	title?: string;
 	instruction?: string;
 };
@@ -23,7 +22,7 @@ export function createFocusCodeRegionTool(deps: FocusCodeRegionDeps): DynamicToo
 	return new DynamicTool({
 		name: 'focus_user_code_region',
 		description:
-			'Reveal and highlight where the user should write code next. Use this when assigning coding steps. IMPORTANT: (1) Highlight a continuous edit block, not just a single line; usually cover at least 3 lines unless the change is truly one-line. (2) endLine must include the last line the user needs to touch. (3) For insert-after cases, include surrounding context lines instead of only the insertion point. (4) Multiple focus regions are allowed; call this tool repeatedly to build a navigable set of highlights for the session. (5) Re-check location with read_file/search_file_content before calling to reduce line drift. (6) When a region is done or wrong, use clear_focus_code_region to remove it by id/path. Input JSON: {"path":"src/file.ts","startLine":10,"endLine":18,"anchorText":"function foo(","title":"Next coding task","instruction":"Implement the logic here"}.',
+			'Reveal and highlight where the user should write code next. Use this when assigning coding steps. Input JSON: {"path":"src/file.ts","startLine":10,"endLine":18,"title":"Next coding task","instruction":"Implement the logic here"}.',
 		func: async (rawInput) => {
 			const workspaceRoot = resolveWorkspaceRoot();
 			if (!workspaceRoot) {

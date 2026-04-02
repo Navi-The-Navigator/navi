@@ -113,4 +113,48 @@ suite('ChatSessionStore', () => {
 		assert.deepStrictEqual(store.getTodos(secondSession), []);
 		assert.strictEqual(store.getTodos(firstSession).length, 1);
 	});
+
+	test('stores replayable view state for messages and progress entries', () => {
+		const store = new ChatSessionStore();
+		const sessionId = store.getCurrentSessionId();
+
+		store.appendMessage(sessionId, 'user', 'first question');
+		const runId = store.startAssistantReply(sessionId);
+		store.appendStatusEntry(sessionId, 'progress', '扫描项目结构');
+		store.appendAssistantDelta(sessionId, '正在分析');
+		store.appendStatusEntry(sessionId, 'elapsed', '用时：1.25s');
+		store.finishAssistantReply(sessionId);
+
+		const state = store.getViewState(sessionId);
+		assert.strictEqual(runId, 1);
+		assert.strictEqual(state.isGenerating, false);
+		assert.strictEqual(state.activeAssistantText, '');
+		assert.strictEqual(state.activeRunId, 0);
+		assert.deepStrictEqual(state.messages, [
+			{ role: 'user', text: 'first question' },
+			{ role: 'assistant', text: '正在分析' }
+		]);
+		assert.strictEqual(state.statusEntries.length, 2);
+		assert.strictEqual(state.statusEntries[0].kind, 'progress');
+		assert.strictEqual(state.statusEntries[0].text, '扫描项目结构');
+		assert.strictEqual(state.statusEntries[0].runId, 1);
+		assert.strictEqual(state.statusEntries[1].kind, 'elapsed');
+		assert.strictEqual(state.statusEntries[1].runId, 1);
+	});
+
+	test('keeps in-flight assistant content available for webview restore', () => {
+		const store = new ChatSessionStore();
+		const sessionId = store.getCurrentSessionId();
+
+		store.appendMessage(sessionId, 'user', 'follow up');
+		store.startAssistantReply(sessionId);
+		store.appendAssistantDelta(sessionId, 'partial answer');
+		store.appendStatusEntry(sessionId, 'progress', '正在读取文件');
+
+		const state = store.getViewState(sessionId);
+		assert.strictEqual(state.isGenerating, true);
+		assert.strictEqual(state.activeAssistantText, 'partial answer');
+		assert.strictEqual(state.messages.length, 1);
+		assert.strictEqual(state.statusEntries.length, 1);
+	});
 });

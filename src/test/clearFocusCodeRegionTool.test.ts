@@ -37,7 +37,6 @@ suite('createClearFocusCodeRegionTool', () => {
 			endLine: 6,
 			title: 'Current task',
 			instruction: 'Edit block',
-			resolvedBy: 'lines',
 			updatedAt: Date.now()
 		};
 

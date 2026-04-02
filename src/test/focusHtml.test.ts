@@ -21,7 +21,6 @@ suite('getFocusHtml', () => {
 		assert.ok(html.includes('id="focusNextBtn"'));
 		assert.ok(html.includes('id="focusReviewSelectedBtn"'));
 		assert.ok(html.includes('id="focusHelpSelectedBtn"'));
-		assert.ok(html.includes('id="focusProceedBtn"'));
 		assert.ok(html.includes("type: 'focus:prev'"));
 		assert.ok(html.includes("type: 'focus:next'"));
 		assert.ok(html.includes("type: 'focus:revealById'"));
@@ -29,7 +28,7 @@ suite('getFocusHtml', () => {
 		assert.ok(html.includes("type: 'focus:helpById'"));
 		assert.ok(html.includes("type: 'focus:reviewSelected'"));
 		assert.ok(html.includes("type: 'focus:helpSelected'"));
-		assert.ok(html.includes("type: 'focus:proceedSelected'"));
+		assert.ok(!html.includes('Proceed Anyway'));
 		assert.ok(html.includes('checkbox.type = \'checkbox\''));
 		assert.ok(!html.includes("type: 'focus:clearById'"));
 		assert.ok(html.includes("if (message.type !== 'focus:state')"));

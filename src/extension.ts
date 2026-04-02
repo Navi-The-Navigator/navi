@@ -53,6 +53,8 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	private readonly disposables: vscode.Disposable[] = [];
 	private isGenerating = false;
 	private cancelGenerationRequested = false;
+	private activeGenerationAbortController?: AbortController;
+	private activeGenerationSessionId?: string;
 	private activeWebview?: vscode.Webview;
 	private activeFocusWebview?: vscode.Webview;
 
@@ -78,6 +80,22 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			vscode.window.onDidChangeActiveTextEditor(() => {
 				this.refreshFocusDecorationsForCurrentSession();
 				this.updateFocusSwitcherStatusBar();
+			}),
+			vscode.workspace.onDidChangeConfiguration(async (event) => {
+				if (!this.didAffectChatModelConfiguration(event)) {
+					return;
+				}
+
+				await this.gateway.invalidateAgent();
+				if (!this.activeWebview) {
+					return;
+				}
+
+				await this.activeWebview.postMessage({
+					type: 'chat:toolStatus',
+					text: '检测到 LLM 设置已更新，下一次请求会使用新配置。',
+					transient: true
+				});
 			}),
 			vscode.workspace.onDidChangeTextDocument(async (event) => {
 				await this.syncFocusTargetsForDocumentChange(event);
@@ -105,6 +123,10 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			}),
 			createUpdateProgressTool({
 				onProgress: async (text) => {
+					const sessionId = this.activeGenerationSessionId;
+					if (sessionId) {
+						this.sessionStore.appendStatusEntry(sessionId, 'progress', text);
+					}
 					if (!this.activeWebview) {
 						return;
 					}
@@ -252,11 +274,6 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			await this.submitFocusActionPrompt(sessionId, message.focusTargetIds ?? [], 'help');
 			return;
 		}
-
-		if (message.type === 'focus:proceedSelected') {
-			const sessionId = message.sessionId ?? this.sessionStore.getCurrentSessionId();
-			await this.submitFocusActionPrompt(sessionId, message.focusTargetIds ?? [], 'proceed');
-		}
 	}
 
 	private async handleInboundMessage(webview: vscode.Webview, message: ChatInboundMessage): Promise<void> {
@@ -374,10 +391,11 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		if (message.type === 'chat:cancelGeneration') {
 			if (this.isGenerating) {
 				this.cancelGenerationRequested = true;
+				this.activeGenerationAbortController?.abort();
 				await webview.postMessage({
 					type: 'chat:toolStatus',
 					text: '正在取消当前回复...',
-					transient: false
+					transient: true
 				});
 			}
 			return;
@@ -392,6 +410,8 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
+		const sessionId = this.sessionStore.getCurrentSessionId();
+		this.sessionStore.appendMessage(sessionId, 'user', prompt);
 		await this.handleUserMessage(webview, prompt);
 	}
 
@@ -408,11 +428,15 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 		this.isGenerating = true;
 		this.cancelGenerationRequested = false;
+		const generationAbortController = new AbortController();
+		this.activeGenerationAbortController = generationAbortController;
 		const startedAt = Date.now();
+		const sessionId = this.sessionStore.getCurrentSessionId();
+		this.activeGenerationSessionId = sessionId;
+		this.sessionStore.startAssistantReply(sessionId);
 		await webview.postMessage({ type: 'chat:assistantStart' });
 
 		try {
-			const sessionId = this.sessionStore.getCurrentSessionId();
 			this.sessionStore.updateSessionTitleIfNeeded(sessionId, prompt);
 			await this.postSessionSummary(webview);
 
@@ -430,15 +454,18 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 					});
 				},
 				onAssistantDelta: async (delta) => {
+					this.sessionStore.appendAssistantDelta(sessionId, delta);
 					await webview.postMessage({
 						type: 'chat:assistantDelta',
 						text: delta
 					});
 				},
-				shouldCancel: () => this.cancelGenerationRequested
+				shouldCancel: () => this.cancelGenerationRequested,
+				abortSignal: generationAbortController.signal
 			});
 
 			if (!assistantText.trim()) {
+				this.sessionStore.appendAssistantDelta(sessionId, '我暂时没有生成可显示的文本响应。');
 				await webview.postMessage({
 					type: 'chat:assistantDelta',
 					text: '我暂时没有生成可显示的文本响应。'
@@ -446,6 +473,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			}
 
 			const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(2);
+			this.sessionStore.appendStatusEntry(sessionId, 'elapsed', `用时：${elapsedSeconds}s`);
 			await webview.postMessage({
 				type: 'chat:elapsed',
 				text: `用时：${elapsedSeconds}s`
@@ -453,16 +481,23 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		} catch (error) {
 			const messageText = error instanceof Error ? error.message : 'Unknown error';
 			if (messageText.includes('用户已取消')) {
+				this.sessionStore.setAssistantError(sessionId, '已取消本次回复。');
 				await webview.postMessage({
 					type: 'chat:assistantDelta',
 					text: '已取消本次回复。'
 				});
 				return;
 			}
+			this.sessionStore.setAssistantError(sessionId, `请求 DeepSeek 失败：${messageText}`);
 			await this.postError(webview, `请求 DeepSeek 失败：${messageText}`);
 		} finally {
+			this.sessionStore.finishAssistantReply(sessionId);
 			this.isGenerating = false;
 			this.cancelGenerationRequested = false;
+			this.activeGenerationSessionId = undefined;
+			if (this.activeGenerationAbortController === generationAbortController) {
+				this.activeGenerationAbortController = undefined;
+			}
 			await webview.postMessage({ type: 'chat:assistantDone' });
 		}
 	}
@@ -529,6 +564,17 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		});
 	}
 
+	private didAffectChatModelConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
+		return (
+			event.affectsConfiguration('navi.deepseekApiKey') ||
+			event.affectsConfiguration('navi.deepseekBaseUrl') ||
+			event.affectsConfiguration('navi.deepseekModel') ||
+			event.affectsConfiguration('navi.temperature') ||
+			event.affectsConfiguration('navi.mcpEnabled') ||
+			event.affectsConfiguration('navi.mcpServersJson')
+		);
+	}
+
 	private async postSessionSummary(webview: vscode.Webview): Promise<void> {
 		await webview.postMessage({
 			type: 'chat:sessions',
@@ -550,6 +596,14 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 		await this.postTodos(this.activeWebview, sessionId);
+	}
+
+	private async postSessionViewState(webview: vscode.Webview, sessionId: string): Promise<void> {
+		await webview.postMessage({
+			type: 'chat:sessionState',
+			sessionId,
+			state: this.sessionStore.getViewState(sessionId)
+		});
 	}
 
 	private async postFocusTarget(webview: vscode.Webview, sessionId: string): Promise<void> {
@@ -589,12 +643,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		await this.postSessionSummary(webview);
 		await this.postTodos(webview, currentSessionId);
 		await this.postFocusTarget(webview, currentSessionId);
-		const messages = await this.gateway.loadSessionMessages(currentSessionId);
-		await webview.postMessage({
-			type: 'chat:sessionHistory',
-			sessionId: currentSessionId,
-			messages
-		});
+		await this.postSessionViewState(webview, currentSessionId);
 	}
 
 	private async focusUserCodeRegion(sessionId: string, input: FocusCodeRegionInput): Promise<ChatFocusTarget> {
@@ -627,7 +676,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 		const uri = vscode.Uri.file(absolutePath);
 		const document = await vscode.workspace.openTextDocument(uri);
-		const { range, resolvedBy } = this.resolveTargetRange(document, input);
+		const range = this.resolveTargetRange(document, input);
 
 		return {
 			id: createFocusTargetId(),
@@ -637,8 +686,6 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			endLine: range.end.line + 1,
 			title: (input.title ?? '').trim() || '下一步编码区域',
 			instruction: (input.instruction ?? '').trim(),
-			resolvedBy,
-			anchorText: (input.anchorText ?? '').trim() || undefined,
 			updatedAt: Date.now()
 		};
 	}
@@ -646,23 +693,11 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	private resolveTargetRange(
 		document: vscode.TextDocument,
 		input: FocusCodeRegionInput
-	): { range: vscode.Range; resolvedBy: ChatFocusTarget['resolvedBy'] } {
-		const anchorText = (input.anchorText ?? '').trim();
-		if (anchorText) {
-			const offset = document.getText().indexOf(anchorText);
-			if (offset >= 0) {
-				const start = document.positionAt(offset);
-				const end = document.positionAt(offset + anchorText.length);
-				const anchorRange = new vscode.Range(start.line, 0, end.line, 0);
-				return { range: anchorRange, resolvedBy: 'anchor' };
-			}
-		}
-
+	): vscode.Range {
 		const lineCount = Math.max(1, document.lineCount);
 		const startLineIndex = this.clampInteger(input.startLine, 1, 1, lineCount) - 1;
 		const endLineIndex = this.clampInteger(input.endLine, startLineIndex + 1, startLineIndex + 1, lineCount) - 1;
-		const range = new vscode.Range(startLineIndex, 0, endLineIndex, 0);
-		return { range, resolvedBy: 'lines' };
+		return new vscode.Range(startLineIndex, 0, endLineIndex, 0);
 	}
 
 	private ensureNonEmptyRange(document: vscode.TextDocument, range: vscode.Range): vscode.Range {
@@ -690,10 +725,10 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 		const editor = await vscode.window.showTextDocument(document, {
 			preserveFocus: false,
-			preview: false,
-			selection: range
+			preview: false
 		});
 
+		editor.selection = new vscode.Selection(range.start, range.start);
 		editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
 		this.refreshFocusDecorationsForCurrentSession();
 		this.updateFocusSwitcherStatusBar();
@@ -1053,7 +1088,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	private async submitFocusActionPrompt(
 		sessionId: string,
 		focusTargetIds: string[],
-		action: 'review' | 'help' | 'proceed'
+		action: 'review' | 'help'
 	): Promise<void> {
 		const webview = this.activeWebview;
 		if (!webview) {
@@ -1073,6 +1108,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		const { preview, prompt } = this.buildFocusActionPrompt(selectedTargets, action);
+		this.sessionStore.appendMessage(sessionId, 'user', preview);
 		await webview.postMessage({
 			type: 'chat:externalUserMessage',
 			text: preview
@@ -1082,7 +1118,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 	private buildFocusActionPrompt(
 		targets: ChatFocusTarget[],
-		action: 'review' | 'help' | 'proceed'
+		action: 'review' | 'help'
 	): { preview: string; prompt: string } {
 		const regionLines = targets
 			.map(
@@ -1095,7 +1131,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return {
 				preview: `请 Review 我选中的 ${targets.length} 个 Focus 区域。`,
 				prompt:
-					'请 review 我选中的 focus 区域。不要直接替我完成代码，而是基于这些区域说明我应该自查什么、可能的风险点、完成标准，以及最合理的下一步。\n\n选中的区域如下：\n' +
+					'请 review 我选中的 focus 区域，分析我的任务完成情况，以及最合理的下一步。\n\n选中的区域如下：\n' +
 					regionLines
 			};
 		}
@@ -1104,15 +1140,15 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return {
 				preview: `请 Help 我处理选中的 ${targets.length} 个 Focus 区域。`,
 				prompt:
-					'请帮助我处理下面选中的 focus 区域。不要直接给我整段最终实现，而是解释这些区域各自要改什么、推荐的落笔顺序、关键判断条件和容易出错的地方。\n\n选中的区域如下：\n' +
+					'请帮助我处理下面选中的 focus 区域。解释这些区域各自要改什么、推荐的落笔顺序、关键判断条件和容易出错的地方。\n\n选中的区域如下：\n' +
 					regionLines
 			};
 		}
 
 		return {
-			preview: `我决定继续推进选中的 ${targets.length} 个 Focus 区域。`,
+			preview: `请 Review 我选中的 ${targets.length} 个 Focus 区域。`,
 			prompt:
-				'我决定暂时跳过额外的 review/help，直接继续处理下面选中的 focus 区域。请不要展开过多分析，而是给我最短、最直接的下一步编码指令，告诉我应该先写哪一块、按什么顺序推进。\n\n选中的区域如下：\n' +
+				'请 review 我选中的 focus 区域，分析我的任务完成情况，以及最合理的下一步。\n\n选中的区域如下：\n' +
 				regionLines
 		};
 	}

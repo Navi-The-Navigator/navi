@@ -27,6 +27,21 @@ export type RenderableMessage = {
 	text: string;
 };
 
+export type ChatStatusEntry = {
+	kind: 'progress' | 'elapsed';
+	text: string;
+	runId: number;
+	createdAt: number;
+};
+
+export type ChatSessionViewState = {
+	messages: RenderableMessage[];
+	statusEntries: ChatStatusEntry[];
+	isGenerating: boolean;
+	activeAssistantText: string;
+	activeRunId: number;
+};
+
 export type ChatFocusTarget = {
 	id: string;
 	sessionId: string;
@@ -35,7 +50,5 @@ export type ChatFocusTarget = {
 	endLine: number;
 	title: string;
 	instruction: string;
-	resolvedBy: 'anchor' | 'lines';
-	anchorText?: string;
 	updatedAt: number;
 };

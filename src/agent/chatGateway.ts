@@ -20,6 +20,7 @@ type StreamCallbacks = {
 	onToolEnd?: () => Promise<void>;
 	onAssistantDelta?: (delta: string) => Promise<void>;
 	shouldCancel?: () => boolean;
+	abortSignal?: AbortSignal;
 };
 
 export class DeepSeekChatGateway {
@@ -44,6 +45,7 @@ export class DeepSeekChatGateway {
 					{
 						version: 'v2',
 						recursionLimit,
+						signal: callbacks.abortSignal,
 						configurable: {
 							thread_id: sessionId
 						}
@@ -84,6 +86,9 @@ export class DeepSeekChatGateway {
 				}
 				return assistantText;
 			} catch (error) {
+				if (callbacks.shouldCancel?.() || callbacks.abortSignal?.aborted) {
+					throw this.normalizeStreamError(new Error('__NAVI_CANCELLED__'));
+				}
 				if (this.shouldRetryStreamError(error) && attempt < DEFAULT_STREAM_RETRY_LIMIT && !assistantText.trim()) {
 					await this.resetAgentForRetry();
 					continue;
@@ -136,6 +141,12 @@ export class DeepSeekChatGateway {
 		await this.disposeMcpClient();
 	}
 
+	public async invalidateAgent(): Promise<void> {
+		this.agent = undefined;
+		this.agentInitPromise = undefined;
+		await this.disposeMcpClient();
+	}
+
 	private async getOrCreateAgent(): Promise<ReturnType<typeof createReactAgent>> {
 		if (this.agent) {
 			return this.agent;
@@ -161,8 +172,8 @@ export class DeepSeekChatGateway {
 			throw new Error('缺少 API Key。请先通过 Settings 配置 navi.deepseekApiKey，或确认使用环境变量 DEEPSEEK_API_KEY。');
 		}
 
-		const model = config.get<string>('deepseekModel', DEFAULT_DEEPSEEK_MODEL);
-		const baseURL = config.get<string>('deepseekBaseUrl', DEFAULT_DEEPSEEK_BASE_URL);
+		const model = this.resolveModel(config);
+		const baseURL = this.resolveBaseUrl(config);
 		const temperature = config.get<number>('temperature', 0.2);
 
 		const chatModel = new ChatOpenAI({
@@ -220,9 +231,7 @@ export class DeepSeekChatGateway {
 	}
 
 	private async resetAgentForRetry(): Promise<void> {
-		this.agent = undefined;
-		this.agentInitPromise = undefined;
-		await this.disposeMcpClient();
+		await this.invalidateAgent();
 	}
 
 	private async disposeMcpClient(): Promise<void> {
@@ -241,6 +250,16 @@ export class DeepSeekChatGateway {
 		}
 
 		return (process.env.DEEPSEEK_API_KEY ?? '').trim();
+	}
+
+	private resolveBaseUrl(config: vscode.WorkspaceConfiguration): string {
+		const configuredBaseUrl = (config.get<string>('deepseekBaseUrl', DEFAULT_DEEPSEEK_BASE_URL) ?? '').trim();
+		return configuredBaseUrl || DEFAULT_DEEPSEEK_BASE_URL;
+	}
+
+	private resolveModel(config: vscode.WorkspaceConfiguration): string {
+		const configuredModel = (config.get<string>('deepseekModel', DEFAULT_DEEPSEEK_MODEL) ?? '').trim();
+		return configuredModel || DEFAULT_DEEPSEEK_MODEL;
 	}
 
 	private resolveRecursionLimit(config: vscode.WorkspaceConfiguration): number {
@@ -263,6 +282,9 @@ export class DeepSeekChatGateway {
 		if (message.includes('__navi_cancelled__')) {
 			return false;
 		}
+		if (message.includes('aborterror')) {
+			return false;
+		}
 		return (
 			message.includes('terminated') ||
 			message.includes('abort') ||
@@ -281,6 +303,9 @@ export class DeepSeekChatGateway {
 		if (lower.includes('__navi_cancelled__')) {
 			return new Error('用户已取消本次生成。');
 		}
+		if (lower.includes('aborterror')) {
+			return new Error('用户已取消本次生成。');
+		}
 		if (lower.includes('terminated') || lower.includes('abort')) {
 			return new Error('连接被中断（terminated）。已自动重试一次；如仍失败，请重试或降低任务复杂度。');
 		}
@@ -295,7 +320,7 @@ export class DeepSeekChatGateway {
 	}
 
 	private ensureNotCancelled(callbacks: StreamCallbacks): void {
-		if (callbacks.shouldCancel?.()) {
+		if (callbacks.shouldCancel?.() || callbacks.abortSignal?.aborted) {
 			throw new Error('__NAVI_CANCELLED__');
 		}
 	}

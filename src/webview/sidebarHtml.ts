@@ -87,9 +87,14 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		let startAckTimeout = null;
 		let transientToolStatusEl = null;
 		let transientToolStatusHideTimeout = null;
-		let progressCollapseFinalizeTimeout = null;
-		let progressSummaryEl = null;
-		let progressCollapsed = false;
+		let nextProgressRunId = 1;
+		let activeProgressRunId = 0;
+		const progressRunNodes = new Map();
+		const progressRunSummaryEls = new Map();
+		const progressRunCollapsed = new Map();
+		const progressRunFinalizeTimeouts = new Map();
+		let assistantSentDelta = false;
+		let cancellationInFlight = false;
 		let todoCollapsed = false;
 		const mdBacktick = String.fromCharCode(96);
 		const inlineCodePattern = new RegExp(mdBacktick + '([^' + mdBacktick + '\\n]+)' + mdBacktick, 'g');
@@ -122,13 +127,22 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			}
 		}
 
-		function appendMessage(role, text) {
+		function scrollChatToBottom(smooth) {
+			const behavior = smooth ? 'smooth' : 'auto';
+			if (typeof chatBody.scrollTo === 'function') {
+				chatBody.scrollTo({ top: chatBody.scrollHeight, behavior });
+				return;
+			}
+			chatBody.scrollTop = chatBody.scrollHeight;
+		}
+
+		function appendMessage(role, text, smoothScrollToBottom) {
 			const el = document.createElement('div');
 			el.className = 'message ' + role;
 			el.dataset.rawMarkdown = text || '';
 			el.innerHTML = renderMarkdown(text || '');
 			chatBody.insertBefore(el, toolCallSlot);
-			chatBody.scrollTop = chatBody.scrollHeight;
+			scrollChatToBottom(!!smoothScrollToBottom);
 			return el;
 		}
 
@@ -324,11 +338,21 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			keepTransientToolStatusAtBottom();
 			toolCallSlot.classList.add('empty');
 			toolCallSlot.textContent = '';
-			if (progressSummaryEl) {
-				progressSummaryEl.remove();
-				progressSummaryEl = null;
-			}
-			progressCollapsed = false;
+			progressRunFinalizeTimeouts.forEach((timeoutId) => {
+				if (timeoutId) {
+					clearTimeout(timeoutId);
+				}
+			});
+			progressRunFinalizeTimeouts.clear();
+			progressRunSummaryEls.forEach((summaryEl) => {
+				summaryEl.remove();
+			});
+			progressRunSummaryEls.clear();
+			progressRunNodes.clear();
+			progressRunCollapsed.clear();
+			activeProgressRunId = 0;
+			assistantSentDelta = false;
+			cancellationInFlight = false;
 			transientToolStatusEl = null;
 			appendMessage('assistant', ${JSON.stringify(DEFAULT_WELCOME_MESSAGE)});
 			activeAssistantMessage = null;
@@ -341,34 +365,48 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 				.filter((node) => !node.classList.contains('elapsed-status'));
 		}
 
+		function getProgressRunNodes(runId) {
+			const nodes = progressRunNodes.get(runId) || [];
+			const activeNodes = nodes.filter((node) => !!node && node.isConnected);
+			if (activeNodes.length !== nodes.length) {
+				progressRunNodes.set(runId, activeNodes);
+			}
+			return activeNodes;
+		}
+
 		function keepTransientToolStatusAtBottom() {
 			chatBody.insertBefore(toolCallSlot, loading);
 		}
 
-		function ensureProgressSummary() {
-			if (progressSummaryEl) {
-				return progressSummaryEl;
+		function ensureProgressRunSummary(runId) {
+			const currentSummary = progressRunSummaryEls.get(runId);
+			if (currentSummary && currentSummary.isConnected) {
+				return currentSummary;
 			}
 			const summary = document.createElement('button');
 			summary.type = 'button';
 			summary.className = 'progress-summary';
 			summary.addEventListener('click', () => {
-				setProgressCollapsed(!progressCollapsed);
+				const collapsed = !!progressRunCollapsed.get(runId);
+				setProgressRunCollapsed(runId, !collapsed);
 			});
-			progressSummaryEl = summary;
-			const firstProgressNode = getProgressStatusNodes()[0] ?? loading;
+			progressRunSummaryEls.set(runId, summary);
+			const firstProgressNode = getProgressRunNodes(runId)[0] ?? loading;
 			chatBody.insertBefore(summary, firstProgressNode);
 			return summary;
 		}
 
-		function setProgressCollapsed(collapsed) {
-			progressCollapsed = !!collapsed;
-			if (progressCollapseFinalizeTimeout) {
-				clearTimeout(progressCollapseFinalizeTimeout);
-				progressCollapseFinalizeTimeout = null;
+		function setProgressRunCollapsed(runId, collapsed) {
+			const nextCollapsed = !!collapsed;
+			progressRunCollapsed.set(runId, nextCollapsed);
+			const previousTimeout = progressRunFinalizeTimeouts.get(runId);
+			if (previousTimeout) {
+				clearTimeout(previousTimeout);
+				progressRunFinalizeTimeouts.delete(runId);
 			}
-			const nodes = getProgressStatusNodes();
-			if (!progressCollapsed) {
+			const nodes = getProgressRunNodes(runId);
+
+			if (!nextCollapsed) {
 				nodes.forEach((node) => {
 					node.classList.remove('progress-collapsed-done');
 					node.style.display = '';
@@ -382,35 +420,36 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 				nodes.forEach((node) => {
 					node.classList.add('progress-hidden');
 				});
-				progressCollapseFinalizeTimeout = setTimeout(() => {
-					if (!progressCollapsed) {
+				const timeoutId = setTimeout(() => {
+					if (!progressRunCollapsed.get(runId)) {
 						return;
 					}
-					const activeNodes = getProgressStatusNodes();
+					const activeNodes = getProgressRunNodes(runId);
 					activeNodes.forEach((node) => {
 						node.classList.add('progress-collapsed-done');
 						node.style.display = 'none';
 					});
 				}, 240);
+				progressRunFinalizeTimeouts.set(runId, timeoutId);
 			}
 
 			if (nodes.length === 0) {
-				if (progressSummaryEl) {
-					progressSummaryEl.remove();
-					progressSummaryEl = null;
+				const summaryEl = progressRunSummaryEls.get(runId);
+				if (summaryEl) {
+					summaryEl.remove();
 				}
+				progressRunSummaryEls.delete(runId);
+				progressRunCollapsed.delete(runId);
+				progressRunFinalizeTimeouts.delete(runId);
+				progressRunNodes.delete(runId);
 				return;
 			}
 
-			const summary = ensureProgressSummary();
-			summary.classList.toggle('expanded', !progressCollapsed);
-			summary.textContent = progressCollapsed
+			const summary = ensureProgressRunSummary(runId);
+			summary.classList.toggle('expanded', !nextCollapsed);
+			summary.textContent = nextCollapsed
 				? '进度记录（' + nodes.length + '）已折叠，点击展开'
 				: '进度记录（' + nodes.length + '）点击折叠';
-		}
-
-		function refreshProgressSummary() {
-			setProgressCollapsed(progressCollapsed);
 		}
 
 		function renderTodos(todos) {
@@ -447,6 +486,7 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 
 		function sendMessage() {
 			if (isBusy) {
+				cancellationInFlight = true;
 				vscode.postMessage({ type: 'chat:cancelGeneration' });
 				return;
 			}
@@ -456,7 +496,7 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 				return;
 			}
 
-			appendMessage('user', text);
+			appendMessage('user', text, true);
 			promptInput.value = '';
 			autoResizePrompt();
 			vscode.postMessage({ type: 'chat:userMessage', text });
@@ -691,14 +731,22 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 				appendTransientToolStatus(text);
 				return;
 			}
+			if (!activeProgressRunId) {
+				activeProgressRunId = nextProgressRunId;
+				nextProgressRunId += 1;
+			}
 			const el = document.createElement('div');
 			el.className = 'tool-status progress-entry';
 			el.textContent = text;
 			el.classList.add('progress-entry-appear');
+			el.dataset.progressRunId = String(activeProgressRunId);
+			const runNodes = progressRunNodes.get(activeProgressRunId) || [];
+			runNodes.push(el);
+			progressRunNodes.set(activeProgressRunId, runNodes);
 			chatBody.insertBefore(el, toolCallSlot);
 			keepTransientToolStatusAtBottom();
 			activeAssistantMessage = null;
-			refreshProgressSummary();
+			setProgressRunCollapsed(activeProgressRunId, false);
 			chatBody.scrollTop = chatBody.scrollHeight;
 		}
 
@@ -709,8 +757,68 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			el.classList.add('progress-entry-appear');
 			chatBody.insertBefore(el, toolCallSlot);
 			keepTransientToolStatusAtBottom();
-			refreshProgressSummary();
 			chatBody.scrollTop = chatBody.scrollHeight;
+		}
+
+		function appendHistoricalStatus(text, kind, runId) {
+			if (kind === 'elapsed') {
+				const el = document.createElement('div');
+				el.className = 'tool-status elapsed-status';
+				el.textContent = text;
+				chatBody.insertBefore(el, toolCallSlot);
+				keepTransientToolStatusAtBottom();
+				return;
+			}
+
+			const normalizedRunId = Number.isFinite(runId) && runId > 0 ? runId : nextProgressRunId++;
+			nextProgressRunId = Math.max(nextProgressRunId, normalizedRunId + 1);
+			const el = document.createElement('div');
+			el.className = 'tool-status progress-entry';
+			el.textContent = text;
+			el.dataset.progressRunId = String(normalizedRunId);
+			const runNodes = progressRunNodes.get(normalizedRunId) || [];
+			runNodes.push(el);
+			progressRunNodes.set(normalizedRunId, runNodes);
+			chatBody.insertBefore(el, toolCallSlot);
+			keepTransientToolStatusAtBottom();
+		}
+
+		function renderSessionState(state) {
+			resetChat();
+			if (!state || typeof state !== 'object') {
+				return;
+			}
+
+			const messages = Array.isArray(state.messages) ? state.messages : [];
+			const statusEntries = Array.isArray(state.statusEntries) ? state.statusEntries : [];
+			messages.forEach((message) => {
+				appendMessage(message.role === 'user' ? 'user' : 'assistant', message.text || '');
+			});
+			statusEntries.forEach((entry) => {
+				appendHistoricalStatus(entry.text || '', entry.kind || 'progress', Number(entry.runId));
+			});
+
+			const isGenerating = !!state.isGenerating;
+			const activeAssistantText = typeof state.activeAssistantText === 'string' ? state.activeAssistantText : '';
+			const activeRunId = Number(state.activeRunId);
+			if (isGenerating) {
+				if (Number.isFinite(activeRunId) && activeRunId > 0) {
+					activeProgressRunId = activeRunId;
+					nextProgressRunId = Math.max(nextProgressRunId, activeRunId + 1);
+				} else {
+					activeProgressRunId = nextProgressRunId;
+					nextProgressRunId += 1;
+				}
+				if (activeAssistantText) {
+					activeAssistantMessage = appendMessage('assistant', activeAssistantText);
+				}
+				setLoading(true);
+				return;
+			}
+
+			activeProgressRunId = 0;
+			activeAssistantMessage = null;
+			setLoading(false);
 		}
 
 		sendBtn.addEventListener('click', sendMessage);
@@ -761,15 +869,34 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			if (message.type === 'chat:assistantStart') {
 				activeAssistantMessage = null;
 				clearTransientToolStatus();
-				setProgressCollapsed(false);
+				activeProgressRunId = nextProgressRunId;
+				nextProgressRunId += 1;
+				assistantSentDelta = false;
+				cancellationInFlight = false;
 				setLoading(true);
 			}
 			if (message.type === 'chat:assistantDelta') {
+				if (activeProgressRunId && !cancellationInFlight) {
+					setProgressRunCollapsed(activeProgressRunId, true);
+				}
+				assistantSentDelta = true;
+				if (!cancellationInFlight) {
+					activeProgressRunId = 0;
+				}
 				appendAssistantDelta(message.text || '');
 			}
 			if (message.type === 'chat:assistantDone') {
-				clearTransientToolStatus();
-				setProgressCollapsed(true);
+				if (cancellationInFlight) {
+					fadeTransientToolStatus();
+				} else {
+					clearTransientToolStatus();
+				}
+				if (!assistantSentDelta && activeProgressRunId && !cancellationInFlight) {
+					setProgressRunCollapsed(activeProgressRunId, true);
+				}
+				activeProgressRunId = 0;
+				assistantSentDelta = false;
+				cancellationInFlight = false;
 				finishAssistantMessage();
 			}
 			if (message.type === 'chat:toolStatus') {
@@ -800,6 +927,11 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			if (message.type === 'chat:sessionHistory') {
 				if (message.sessionId === currentSessionId) {
 					renderSessionHistory(message.messages || []);
+				}
+			}
+			if (message.type === 'chat:sessionState') {
+				if (message.sessionId === currentSessionId) {
+					renderSessionState(message.state || null);
 				}
 			}
 			if (message.type === 'chat:todos') {
