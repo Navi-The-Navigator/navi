@@ -55,7 +55,6 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 					<textarea id="prompt" placeholder="Ask Navi anything"></textarea>
 					<div class="composer-actions">
 						<button id="settingsBtn" class="composer-secondary" type="button">Settings</button>
-						<button id="reviewBtn" class="composer-secondary review-btn" type="button">Review</button>
 						<button id="sendBtn" class="composer-send" type="button">Send</button>
 					</div>
 				</div>
@@ -68,7 +67,6 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		const chatBody = document.getElementById('chatBody');
 		const promptInput = document.getElementById('prompt');
 		const settingsBtn = document.getElementById('settingsBtn');
-		const reviewBtn = document.getElementById('reviewBtn');
 		const sendBtn = document.getElementById('sendBtn');
 		const composerShell = document.getElementById('composerShell');
 		const todoPanel = document.getElementById('todoPanel');
@@ -113,7 +111,6 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 				sendBtn.textContent = 'Cancel';
 				sendBtn.classList.add('composer-cancel');
 				settingsBtn.disabled = true;
-				reviewBtn.disabled = true;
 				closeSessionDropdown();
 			} else {
 				loading.classList.remove('show');
@@ -122,7 +119,6 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 				sendBtn.textContent = 'Send';
 				sendBtn.classList.remove('composer-cancel');
 				settingsBtn.disabled = false;
-				reviewBtn.disabled = false;
 			}
 		}
 
@@ -423,7 +419,6 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			if (todosState.length === 0) {
 				todoPanel.classList.remove('show');
 				composerShell.classList.remove('has-todos');
-				reviewBtn.classList.remove('show');
 				todoSummary.textContent = '';
 				setTodoCollapsed(todoCollapsed);
 				return;
@@ -433,7 +428,6 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			todoSummary.textContent = doneCount + '/' + todosState.length + ' completed';
 			todoPanel.classList.add('show');
 			composerShell.classList.add('has-todos');
-			reviewBtn.classList.add('show');
 			setTodoCollapsed(todoCollapsed);
 
 			todosState.forEach((todo, index) => {
@@ -466,29 +460,6 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			promptInput.value = '';
 			autoResizePrompt();
 			vscode.postMessage({ type: 'chat:userMessage', text });
-			if (startAckTimeout) {
-				clearTimeout(startAckTimeout);
-			}
-			startAckTimeout = setTimeout(() => {
-				if (!isBusy) {
-					appendMessage('assistant', '请求未被处理，请重试一次。');
-				}
-			}, 5000);
-		}
-
-		function sendTodoReview() {
-			if (isBusy || !Array.isArray(todosState) || todosState.length === 0) {
-				return;
-			}
-				const todoLines = todosState
-					.map((todo, index) => '- [' + (todo.completed ? 'x' : ' ') + '] ' + (index + 1) + '. ' + (todo.text || ''))
-					.join('\\n');
-				const userPreview = '请评估我当前 TODO 的完成情况并给下一步建议。';
-				const reviewPrompt =
-					'请根据下面 TODO 列表评估我的完成情况。不要替我完成任务，只评估每项状态、风险和下一步建议。\\n\\n' +
-					todoLines;
-			appendMessage('user', userPreview);
-			vscode.postMessage({ type: 'chat:userMessage', text: reviewPrompt });
 			if (startAckTimeout) {
 				clearTimeout(startAckTimeout);
 			}
@@ -743,7 +714,6 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		}
 
 		sendBtn.addEventListener('click', sendMessage);
-		reviewBtn.addEventListener('click', sendTodoReview);
 		todoToggleBtn.addEventListener('click', () => {
 			setTodoCollapsed(!todoCollapsed);
 		});
@@ -836,6 +806,9 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 				if (message.sessionId === currentSessionId) {
 					renderTodos(message.todos || []);
 				}
+			}
+			if (message.type === 'chat:externalUserMessage') {
+				appendMessage('user', message.text || '');
 			}
 		});
 		vscode.postMessage({ type: 'chat:ready' });

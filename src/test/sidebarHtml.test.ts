@@ -22,11 +22,12 @@ suite('getSidebarHtml', () => {
 			)
 		);
 		assert.ok(html.includes('id="todoPanel"'));
+		assert.ok(!html.includes('id="focusTargetSlot"'));
 		assert.ok(html.includes('id="toolCallSlot"'));
 		assert.ok(html.includes('id="composerShell"'));
 		assert.ok(html.includes('id="todoToggleBtn"'));
 		assert.ok(html.includes('class="todo-list"'));
-		assert.ok(html.includes('id="reviewBtn"'));
+		assert.ok(!html.includes('id="reviewBtn"'));
 		assert.ok(html.includes("type: 'chat:cancelGeneration'"));
 		assert.ok(html.includes("join('\\\\n')"));
 		assert.ok(html.includes("if (message.type === 'chat:todos')"));
@@ -48,6 +49,9 @@ suite('getSidebarHtml', () => {
 		assert.ok(html.includes('chatBody.insertBefore(toolCallSlot, loading);'));
 		assert.ok(html.includes('function setTodoCollapsed(collapsed)'));
 		assert.ok(html.includes("todoToggleBtn.textContent = (todoCollapsed ? '▸' : '▾') + ' TODO';"));
+		assert.ok(!html.includes('function renderFocusTarget(target)'));
+		assert.ok(!html.includes("type: 'chat:revealFocusTarget'"));
+		assert.ok(!html.includes("if (message.type === 'chat:focusTarget')"));
 		assert.ok(html.includes("el.className = 'tool-status progress-entry';"));
 		assert.ok(html.includes("el.classList.add('progress-entry-appear');"));
 		assert.ok(html.includes("el.className = 'tool-status elapsed-status';"));
@@ -58,6 +62,7 @@ suite('getSidebarHtml', () => {
 		assert.ok(html.includes("appendToolStatus(message.text || '', !!message.transient);"));
 		assert.ok(html.includes('function clearTransientToolStatus()'));
 		assert.ok(html.includes("if (message.type === 'chat:toolStatusDone')"));
+		assert.ok(html.includes("if (message.type === 'chat:externalUserMessage')"));
 		assert.ok(html.includes('setProgressCollapsed(true);'));
 		assert.ok(html.includes('function renderMarkdown(raw)'));
 		assert.ok(html.includes('const codeTokenPattern = /^@@(?:MDCODE)(\\d+)@@$/;'));

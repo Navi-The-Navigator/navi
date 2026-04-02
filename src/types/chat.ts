@@ -3,6 +3,9 @@ export type ChatInboundMessage = {
 	text?: string;
 	sessionId?: string;
 	title?: string;
+	focusTarget?: ChatFocusTarget;
+	focusTargetId?: string;
+	focusTargetIds?: string[];
 };
 
 export type ChatSession = {
@@ -22,4 +25,17 @@ export type ChatTodo = {
 export type RenderableMessage = {
 	role: 'user' | 'assistant';
 	text: string;
+};
+
+export type ChatFocusTarget = {
+	id: string;
+	sessionId: string;
+	path: string;
+	startLine: number;
+	endLine: number;
+	title: string;
+	instruction: string;
+	resolvedBy: 'anchor' | 'lines';
+	anchorText?: string;
+	updatedAt: number;
 };

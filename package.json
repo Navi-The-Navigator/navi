@@ -73,6 +73,11 @@
           "id": "navi.sidebarWebview",
           "name": "Chat",
           "type": "webview"
+        },
+        {
+          "id": "navi.focusWebview",
+          "name": "Focus",
+          "type": "webview"
         }
       ]
     },
@@ -80,6 +85,18 @@
       {
         "command": "navi.helloWorld",
         "title": "Hello World"
+      },
+      {
+        "command": "navi.focusSwitcher",
+        "title": "Navi: Switch Focus Region"
+      },
+      {
+        "command": "navi.focusPrev",
+        "title": "Navi: Focus Previous Region"
+      },
+      {
+        "command": "navi.focusNext",
+        "title": "Navi: Focus Next Region"
       }
     ]
   },
