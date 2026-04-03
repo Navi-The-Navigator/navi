@@ -1,5 +1,5 @@
 import { createThreadId, createTodoId } from '../utils/id';
-import type { ChatSession, ChatSessionViewState, ChatStatusEntry, ChatTodo, RenderableMessage } from '../types/chat';
+import type { ChatSession, ChatSessionViewState, ChatStatusEntry, ChatTimelineEntry, ChatTodo, RenderableMessage } from '../types/chat';
 
 type ChatSessionViewStateInternal = ChatSessionViewState & {
 	nextRunId: number;
@@ -103,8 +103,7 @@ export class ChatSessionStore {
 	public getViewState(sessionId: string): ChatSessionViewState {
 		const state = this.ensureViewState(sessionId);
 		return {
-			messages: state.messages.map((message) => ({ ...message })),
-			statusEntries: state.statusEntries.map((entry) => ({ ...entry })),
+			timeline: state.timeline.map((entry) => ({ ...entry })),
 			isGenerating: state.isGenerating,
 			activeAssistantText: state.activeAssistantText,
 			activeRunId: state.activeRunId
@@ -118,7 +117,12 @@ export class ChatSessionStore {
 		}
 		const state = this.ensureViewState(sessionId);
 		const message: RenderableMessage = { role, text: normalized };
-		state.messages.push(message);
+		state.timeline.push({
+			kind: 'message',
+			role: message.role,
+			text: message.text,
+			createdAt: Date.now()
+		});
 		return { ...message };
 	}
 
@@ -157,7 +161,13 @@ export class ChatSessionStore {
 			runId: state.activeRunId,
 			createdAt: Date.now()
 		};
-		state.statusEntries.push(entry);
+		state.timeline.push({
+			kind: 'status',
+			statusKind: entry.kind,
+			text: entry.text,
+			runId: entry.runId,
+			createdAt: entry.createdAt
+		});
 		return { ...entry };
 	}
 
@@ -177,14 +187,18 @@ export class ChatSessionStore {
 	public finishAssistantReply(sessionId: string): void {
 		const state = this.ensureViewState(sessionId);
 		const finalAssistantText = state.activeAssistantText.trim() || DEFAULT_EMPTY_ASSISTANT_MESSAGE;
-		state.messages.push({
+		state.timeline.push({
+			kind: 'message',
 			role: 'assistant',
-			text: finalAssistantText
+			text: finalAssistantText,
+			createdAt: Date.now()
 		});
 		if (state.pendingAssistantError) {
-			state.messages.push({
+			state.timeline.push({
+				kind: 'message',
 				role: 'assistant',
-				text: state.pendingAssistantError
+				text: state.pendingAssistantError,
+				createdAt: Date.now()
 			});
 		}
 		state.isGenerating = false;
@@ -288,8 +302,7 @@ export class ChatSessionStore {
 
 	private createViewState(): ChatSessionViewStateInternal {
 		return {
-			messages: [],
-			statusEntries: [],
+			timeline: [],
 			isGenerating: false,
 			activeAssistantText: '',
 			activeRunId: 0,

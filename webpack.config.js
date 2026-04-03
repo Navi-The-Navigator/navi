@@ -45,4 +45,39 @@ const extensionConfig = {
     level: "log", // enables logging required for problem matchers
   },
 };
-module.exports = [ extensionConfig ];
+
+/** @type WebpackConfig */
+const webviewConfig = {
+  target: 'web',
+  mode: 'none',
+  entry: {
+		sidebarApp: './src/webview/sidebarApp.ts',
+		focusApp: './src/webview/focusApp.ts'
+  },
+  output: {
+    path: path.resolve(__dirname, 'dist'),
+    filename: '[name].js'
+  },
+  resolve: {
+    extensions: ['.ts', '.js']
+  },
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: [
+          {
+            loader: 'ts-loader'
+          }
+        ]
+      }
+    ]
+  },
+  devtool: 'nosources-source-map',
+  infrastructureLogging: {
+    level: 'log'
+  }
+};
+
+module.exports = [extensionConfig, webviewConfig];

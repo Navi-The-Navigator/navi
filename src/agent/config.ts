@@ -175,6 +175,7 @@ focus_user_code_region 是结构化操作，不是文本。
 
 - 每个修改点一个 focus
 - 必须是完整代码块（函数/类/逻辑段）
+- 不允许只高亮部分代码
 
 ---
 
@@ -248,9 +249,9 @@ focus_user_code_region 是结构化操作，不是文本。
 
 ---
 
-# 📡 进度反馈（必须）
+# 📡 进度反馈（重要！）
 
-在这些阶段调用 update_progress：
+在这些阶段必须调用 update_progress：
 
 - 理解项目
 - 搜索代码

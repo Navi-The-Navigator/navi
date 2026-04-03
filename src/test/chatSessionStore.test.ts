@@ -130,16 +130,33 @@ suite('ChatSessionStore', () => {
 		assert.strictEqual(state.isGenerating, false);
 		assert.strictEqual(state.activeAssistantText, '');
 		assert.strictEqual(state.activeRunId, 0);
-		assert.deepStrictEqual(state.messages, [
-			{ role: 'user', text: 'first question' },
-			{ role: 'assistant', text: '正在分析' }
-		]);
-		assert.strictEqual(state.statusEntries.length, 2);
-		assert.strictEqual(state.statusEntries[0].kind, 'progress');
-		assert.strictEqual(state.statusEntries[0].text, '扫描项目结构');
-		assert.strictEqual(state.statusEntries[0].runId, 1);
-		assert.strictEqual(state.statusEntries[1].kind, 'elapsed');
-		assert.strictEqual(state.statusEntries[1].runId, 1);
+		assert.deepStrictEqual(state.timeline.map((entry) => entry.kind), ['message', 'status', 'status', 'message']);
+		assert.deepStrictEqual(state.timeline[0], {
+			kind: 'message',
+			role: 'user',
+			text: 'first question',
+			createdAt: state.timeline[0].createdAt
+		});
+		assert.deepStrictEqual(state.timeline[1], {
+			kind: 'status',
+			statusKind: 'progress',
+			text: '扫描项目结构',
+			runId: 1,
+			createdAt: state.timeline[1].createdAt
+		});
+		assert.deepStrictEqual(state.timeline[2], {
+			kind: 'status',
+			statusKind: 'elapsed',
+			text: '用时：1.25s',
+			runId: 1,
+			createdAt: state.timeline[2].createdAt
+		});
+		assert.deepStrictEqual(state.timeline[3], {
+			kind: 'message',
+			role: 'assistant',
+			text: '正在分析',
+			createdAt: state.timeline[3].createdAt
+		});
 	});
 
 	test('keeps in-flight assistant content available for webview restore', () => {
@@ -154,7 +171,8 @@ suite('ChatSessionStore', () => {
 		const state = store.getViewState(sessionId);
 		assert.strictEqual(state.isGenerating, true);
 		assert.strictEqual(state.activeAssistantText, 'partial answer');
-		assert.strictEqual(state.messages.length, 1);
-		assert.strictEqual(state.statusEntries.length, 1);
+		assert.strictEqual(state.timeline.length, 2);
+		assert.strictEqual(state.timeline[0].kind, 'message');
+		assert.strictEqual(state.timeline[1].kind, 'status');
 	});
 });

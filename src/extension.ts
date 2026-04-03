@@ -431,6 +431,8 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		const generationAbortController = new AbortController();
 		this.activeGenerationAbortController = generationAbortController;
 		const startedAt = Date.now();
+		let elapsedText = '';
+		let shouldPersistElapsed = false;
 		const sessionId = this.sessionStore.getCurrentSessionId();
 		this.activeGenerationSessionId = sessionId;
 		this.sessionStore.startAssistantReply(sessionId);
@@ -473,10 +475,11 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			}
 
 			const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(2);
-			this.sessionStore.appendStatusEntry(sessionId, 'elapsed', `用时：${elapsedSeconds}s`);
+			elapsedText = `用时：${elapsedSeconds}s`;
+			shouldPersistElapsed = true;
 			await webview.postMessage({
 				type: 'chat:elapsed',
-				text: `用时：${elapsedSeconds}s`
+				text: elapsedText
 			});
 		} catch (error) {
 			const messageText = error instanceof Error ? error.message : 'Unknown error';
@@ -492,6 +495,9 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			await this.postError(webview, `请求 DeepSeek 失败：${messageText}`);
 		} finally {
 			this.sessionStore.finishAssistantReply(sessionId);
+			if (shouldPersistElapsed && elapsedText) {
+				this.sessionStore.appendStatusEntry(sessionId, 'elapsed', elapsedText);
+			}
 			this.isGenerating = false;
 			this.cancelGenerationRequested = false;
 			this.activeGenerationSessionId = undefined;

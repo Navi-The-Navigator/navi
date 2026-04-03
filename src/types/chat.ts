@@ -34,9 +34,23 @@ export type ChatStatusEntry = {
 	createdAt: number;
 };
 
+export type ChatTimelineEntry =
+	| {
+		kind: 'message';
+		role: RenderableMessage['role'];
+		text: string;
+		createdAt: number;
+	}
+	| {
+		kind: 'status';
+		statusKind: ChatStatusEntry['kind'];
+		text: string;
+		runId: number;
+		createdAt: number;
+	};
+
 export type ChatSessionViewState = {
-	messages: RenderableMessage[];
-	statusEntries: ChatStatusEntry[];
+	timeline: ChatTimelineEntry[];
 	isGenerating: boolean;
 	activeAssistantText: string;
 	activeRunId: number;

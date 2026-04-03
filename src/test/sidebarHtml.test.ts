@@ -11,11 +11,7 @@ suite('getSidebarHtml', () => {
 		const extensionUri = vscode.Uri.file('/tmp/navi-extension');
 
 		const html = getSidebarHtml(webview, extensionUri);
-		const nonceMatch = html.match(/script-src 'nonce-([^']+)'/);
-
-		assert.ok(nonceMatch);
 		assert.ok(html.includes('<title>Navi Chat</title>'));
-		assert.ok(html.includes('acquireVsCodeApi()'));
 		assert.ok(
 			html.includes(
 				'你今天想构建什么？直接贴需求、报错或相关代码；我会先读取项目上下文，并在聊天区实时同步当前进度，再给你可立即执行的下一步。'
@@ -28,61 +24,12 @@ suite('getSidebarHtml', () => {
 		assert.ok(html.includes('id="todoToggleBtn"'));
 		assert.ok(html.includes('class="todo-list"'));
 		assert.ok(!html.includes('id="reviewBtn"'));
-		assert.ok(html.includes("type: 'chat:cancelGeneration'"));
-		assert.ok(html.includes('function renderInlineMarkdown(raw)'));
-		assert.ok(html.includes('function renderMarkdown(raw)'));
-		assert.ok(html.includes("if (message.type === 'chat:todos')"));
-		assert.ok(html.includes("chatBody.querySelectorAll('.tool-status').forEach((node) => node.remove());"));
-		assert.ok(html.includes('let transientToolStatusEl = null;'));
-		assert.ok(html.includes('let transientToolStatusHideTimeout = null;'));
-		assert.ok(html.includes('let nextProgressRunId = 1;'));
-		assert.ok(html.includes('let activeProgressRunId = 0;'));
-		assert.ok(html.includes("const toolCallSlot = document.getElementById('toolCallSlot');"));
-		assert.ok(html.includes('const progressRunSummaryEls = new Map();'));
-		assert.ok(html.includes('let assistantSentDelta = false;'));
-		assert.ok(html.includes('function appendTransientToolStatus(text)'));
-		assert.ok(html.includes('function fadeTransientToolStatus()'));
-		assert.ok(html.includes('}, 1500);'));
-		assert.ok(html.includes('function setProgressRunCollapsed(runId, collapsed)'));
-		assert.ok(html.includes("node.classList.add('progress-collapsed-done');"));
-		assert.ok(html.includes("node.style.display = '';"));
-		assert.ok(html.includes("node.style.display = 'none';"));
-		assert.ok(html.includes('function ensureProgressRunSummary(runId)'));
-		assert.ok(html.includes('function keepTransientToolStatusAtBottom()'));
-		assert.ok(html.includes('chatBody.insertBefore(toolCallSlot, loading);'));
-		assert.ok(html.includes('function setTodoCollapsed(collapsed)'));
-		assert.ok(html.includes("todoToggleBtn.textContent = (todoCollapsed ? '▸' : '▾') + ' TODO';"));
 		assert.ok(!html.includes('function renderFocusTarget(target)'));
 		assert.ok(!html.includes("type: 'chat:revealFocusTarget'"));
 		assert.ok(!html.includes("if (message.type === 'chat:focusTarget')"));
-		assert.ok(html.includes("el.className = 'tool-status progress-entry';"));
-		assert.ok(html.includes("el.classList.add('progress-entry-appear');"));
-		assert.ok(html.includes("el.className = 'tool-status elapsed-status';"));
-		assert.ok(html.includes('chatBody.insertBefore(el, toolCallSlot);'));
-		assert.ok(html.includes(".filter((node) => !node.classList.contains('elapsed-status'));"));
-		assert.ok(html.includes('setTodoCollapsed(false);'));
-		assert.ok(html.includes("toolCallSlot.classList.add('hidden');"));
-		assert.ok(html.includes("appendToolStatus(message.text || '', !!message.transient);"));
-		assert.ok(html.includes('function clearTransientToolStatus()'));
-		assert.ok(html.includes("if (message.type === 'chat:toolStatusDone')"));
-		assert.ok(html.includes("if (message.type === 'chat:externalUserMessage')"));
-		assert.ok(html.includes('function renderSessionState(state)'));
-		assert.ok(html.includes("if (message.type === 'chat:sessionState')"));
-		assert.ok(html.includes('function appendHistoricalStatus(text, kind, runId)'));
-		assert.ok(html.includes('setProgressRunCollapsed(activeProgressRunId, true);'));
-		assert.ok(html.includes('assistantSentDelta = true;'));
-		assert.ok(html.includes('activeProgressRunId = 0;'));
-		assert.ok(html.includes('if (!assistantSentDelta && activeProgressRunId) {'));
-		assert.ok(html.includes('function renderMarkdown(raw)'));
-		assert.ok(html.includes('const codeTokenPattern = /^@@(?:MDCODE)(\\d+)@@$/;'));
-		assert.ok(html.includes("const normalizedForBlocks = withCodeTokens.replace(/(@@MDCODE\\d+@@)/g, '\\n\\n$1\\n\\n');"));
-		assert.ok(html.includes("const token = '@@MDLINK' + links.length + '@@';"));
-		assert.ok(html.includes("activeAssistantMessage.innerHTML = renderMarkdown(nextRaw);"));
-		assert.ok(html.includes("el.dataset.rawMarkdown = text || '';"));
-		assert.ok(html.includes("el.innerHTML = renderMarkdown(text || '');"));
 		assert.ok(html.includes('webview:/tmp/navi-extension/media/sidebar.css'));
-		assert.ok(html.includes("style-src vscode-webview://test-source; script-src 'nonce-"));
-		assert.ok(html.includes(`<script nonce="${nonceMatch?.[1]}">`));
-		assert.ok(html.includes("vscode.postMessage({ type: 'chat:ready' });"));
+		assert.ok(html.includes('webview:/tmp/navi-extension/dist/sidebarApp.js'));
+		assert.ok(html.includes('style-src vscode-webview://test-source; script-src vscode-webview://test-source;'));
+		assert.ok(html.includes('<script src="webview:/tmp/navi-extension/dist/sidebarApp.js"></script>'));
 	});
 });
