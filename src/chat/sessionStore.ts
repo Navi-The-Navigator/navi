@@ -1,5 +1,16 @@
 import { createThreadId, createTodoId } from '../utils/id';
-import type { ChatSession, ChatSessionViewState, ChatStatusEntry, ChatTimelineEntry, ChatTodo, RenderableMessage } from '../types/chat';
+import type {
+	ChatRun,
+	ChatRunEvent,
+	ChatRunKind,
+	ChatRunStatus,
+	ChatSession,
+	ChatSessionViewState,
+	ChatStatusEntry,
+	ChatTimelineEntry,
+	ChatTodo,
+	RenderableMessage
+} from '../types/chat';
 
 type ChatSessionViewStateInternal = ChatSessionViewState & {
 	nextRunId: number;
@@ -104,10 +115,161 @@ export class ChatSessionStore {
 		const state = this.ensureViewState(sessionId);
 		return {
 			timeline: state.timeline.map((entry) => ({ ...entry })),
+			runs: state.runs.map((run) => this.cloneRun(run, { includeTransientToolStatus: false })),
 			isGenerating: state.isGenerating,
 			activeAssistantText: state.activeAssistantText,
 			activeRunId: state.activeRunId
 		};
+	}
+
+	public startRun(
+		sessionId: string,
+		input: { title: string; kind: ChatRunKind; parentRunId?: string; autoCollapse?: boolean }
+	): ChatRun {
+		const state = this.ensureViewState(sessionId);
+		const now = Date.now();
+		const run: ChatRun = {
+			id: createThreadId().replace(/^thread-/, 'run-'),
+			title: input.title.trim() || 'Sub Agent',
+			kind: input.kind,
+			status: 'running',
+			createdAt: now,
+			startedAt: now,
+			parentRunId: input.parentRunId,
+			collapsed: false,
+			autoCollapse: input.autoCollapse ?? true,
+			transientToolStatusText: '',
+			activeAssistantText: '',
+			finalAssistantText: '',
+			events: []
+		};
+
+		state.runs.push(run);
+		state.timeline.push({
+			kind: 'run',
+			runId: run.id,
+			createdAt: now
+		});
+		state.activeRunId = 0;
+
+		return this.cloneRun(run);
+	}
+
+	public getRun(sessionId: string, runId: string): ChatRun | undefined {
+		const run = this.ensureViewState(sessionId).runs.find((item) => item.id === runId);
+		return run ? this.cloneRun(run) : undefined;
+	}
+
+	public setRunTransientToolStatus(sessionId: string, runId: string, text: string): ChatRun | undefined {
+		const run = this.findRun(sessionId, runId);
+		if (!run) {
+			return undefined;
+		}
+		run.transientToolStatusText = text.trim();
+		return this.cloneRun(run);
+	}
+
+	public clearRunTransientToolStatus(sessionId: string, runId: string): ChatRun | undefined {
+		const run = this.findRun(sessionId, runId);
+		if (!run) {
+			return undefined;
+		}
+		run.transientToolStatusText = '';
+		return this.cloneRun(run);
+	}
+
+	public appendRunProgress(sessionId: string, runId: string, text: string): ChatRun | undefined {
+		return this.appendRunEvent(sessionId, runId, {
+			kind: 'progress',
+			text,
+			transient: false
+		});
+	}
+
+	public appendRunAssistantDelta(sessionId: string, runId: string, text: string): ChatRun | undefined {
+		const normalized = text;
+		if (!normalized) {
+			return this.getRun(sessionId, runId);
+		}
+		const run = this.findRun(sessionId, runId);
+		if (!run) {
+			return undefined;
+		}
+		run.activeAssistantText += normalized;
+		return this.cloneRun(run);
+	}
+
+	public finishRun(
+		sessionId: string,
+		runId: string,
+		input: { status?: Extract<ChatRunStatus, 'completed' | 'cancelled'>; elapsedText?: string; finalAssistantText?: string } = {}
+	): ChatRun | undefined {
+		const run = this.findRun(sessionId, runId);
+		if (!run) {
+			return undefined;
+		}
+
+		const finalAssistantText = (input.finalAssistantText ?? '').trim();
+		if (finalAssistantText) {
+			run.finalAssistantText = finalAssistantText;
+		} else if (run.activeAssistantText.trim()) {
+			run.finalAssistantText = run.activeAssistantText.trim();
+		}
+
+		run.status = input.status ?? 'completed';
+		run.endedAt = Date.now();
+		run.transientToolStatusText = '';
+		if (input.elapsedText?.trim()) {
+			run.elapsedText = input.elapsedText.trim();
+			this.appendRunEventInternal(run, {
+				kind: 'elapsed',
+				text: input.elapsedText.trim(),
+				transient: false
+			});
+		}
+		if (run.autoCollapse) {
+			run.collapsed = true;
+		}
+		return this.cloneRun(run);
+	}
+
+	public failRun(sessionId: string, runId: string, text: string, elapsedText?: string): ChatRun | undefined {
+		const run = this.findRun(sessionId, runId);
+		if (!run) {
+			return undefined;
+		}
+		const normalized = text.trim();
+		if (normalized) {
+			this.appendRunEventInternal(run, {
+				kind: 'error',
+				text: normalized,
+				transient: false
+			});
+		}
+		run.status = 'error';
+		run.endedAt = Date.now();
+		run.transientToolStatusText = '';
+		if (elapsedText?.trim()) {
+			run.elapsedText = elapsedText.trim();
+			this.appendRunEventInternal(run, {
+				kind: 'elapsed',
+				text: elapsedText.trim(),
+				transient: false
+			});
+		}
+		if (run.autoCollapse) {
+			run.collapsed = true;
+		}
+		return this.cloneRun(run);
+	}
+
+	public setRunCollapsed(sessionId: string, runId: string, collapsed: boolean): ChatRun | undefined {
+		const run = this.findRun(sessionId, runId);
+		if (!run) {
+			return undefined;
+		}
+		run.collapsed = !!collapsed;
+		return this.cloneRun(run);
 	}
 
 	public appendMessage(sessionId: string, role: RenderableMessage['role'], text: string): RenderableMessage | undefined {
@@ -303,10 +465,55 @@ export class ChatSessionStore {
 	private createViewState(): ChatSessionViewStateInternal {
 		return {
 			timeline: [],
+			runs: [],
 			isGenerating: false,
 			activeAssistantText: '',
 			activeRunId: 0,
 			nextRunId: 1
+		};
+	}
+
+	private appendRunEvent(
+		sessionId: string,
+		runId: string,
+		input: Omit<ChatRunEvent, 'id' | 'createdAt'> & { text: string }
+	): ChatRun | undefined {
+		const run = this.findRun(sessionId, runId);
+		if (!run) {
+			return undefined;
+		}
+		this.appendRunEventInternal(run, input);
+		return this.cloneRun(run);
+	}
+
+	private appendRunEventInternal(
+		run: ChatRun,
+		input: Omit<ChatRunEvent, 'id' | 'createdAt'> & { text: string }
+	): void {
+		const normalized = input.text.trim();
+		if (!normalized) {
+			return;
+		}
+		run.events.push({
+			id: createTodoId().replace(/^todo-/, 'event-'),
+			kind: input.kind,
+			text: normalized,
+			createdAt: Date.now(),
+			transient: input.transient,
+			status: input.status,
+			toolName: input.toolName
+		});
+	}
+
+	private findRun(sessionId: string, runId: string): ChatRun | undefined {
+		return this.ensureViewState(sessionId).runs.find((item) => item.id === runId);
+	}
+
+	private cloneRun(run: ChatRun, options: { includeTransientToolStatus?: boolean } = {}): ChatRun {
+		return {
+			...run,
+			transientToolStatusText: options.includeTransientToolStatus === false ? '' : run.transientToolStatusText,
+			events: run.events.map((event) => ({ ...event }))
 		};
 	}
 

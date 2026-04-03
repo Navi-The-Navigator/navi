@@ -175,4 +175,75 @@ suite('ChatSessionStore', () => {
 		assert.strictEqual(state.timeline[0].kind, 'message');
 		assert.strictEqual(state.timeline[1].kind, 'status');
 	});
+
+	test('stores subagent run timeline and final state for replay', () => {
+		const store = new ChatSessionStore();
+		const sessionId = store.getCurrentSessionId();
+
+		store.appendMessage(sessionId, 'user', 'review this module');
+		const run = store.startRun(sessionId, {
+			title: 'Task Assessment Agent',
+			kind: 'code_review'
+		});
+		store.setRunTransientToolStatus(sessionId, run.id, '正在调用工具 `read_file`...');
+		store.appendRunProgress(sessionId, run.id, '正在分析模块边界');
+		store.appendRunAssistantDelta(sessionId, run.id, '发现一处缺少空值判断');
+		store.clearRunTransientToolStatus(sessionId, run.id);
+		store.finishRun(sessionId, run.id, {
+			elapsedText: '用时：0.42s',
+			finalAssistantText: '发现一处缺少空值判断'
+		});
+
+		const state = store.getViewState(sessionId);
+		assert.strictEqual(state.runs.length, 1);
+		assert.deepStrictEqual(state.timeline.map((entry) => entry.kind), ['message', 'run']);
+		assert.strictEqual(state.runs[0].id, run.id);
+		assert.strictEqual(state.runs[0].status, 'completed');
+		assert.strictEqual(state.runs[0].collapsed, true);
+		assert.strictEqual(state.runs[0].elapsedText, '用时：0.42s');
+		assert.strictEqual(state.runs[0].transientToolStatusText, '');
+		assert.strictEqual(state.runs[0].finalAssistantText, '发现一处缺少空值判断');
+		assert.strictEqual(state.runs[0].events.length, 2);
+		assert.deepStrictEqual(state.runs[0].events.map((event) => event.kind), ['progress', 'elapsed']);
+	});
+
+	test('splits top-level progress groups when a subagent run starts', () => {
+		const store = new ChatSessionStore();
+		const sessionId = store.getCurrentSessionId();
+
+		store.appendMessage(sessionId, 'user', 'review and continue');
+		store.startAssistantReply(sessionId);
+		store.appendStatusEntry(sessionId, 'progress', '先读取项目结构');
+		const run = store.startRun(sessionId, {
+			title: 'Task Assessment Agent',
+			kind: 'code_review'
+		});
+		store.appendStatusEntry(sessionId, 'progress', '根据子任务结果整理结论');
+
+		const state = store.getViewState(sessionId);
+		const statusEntries = state.timeline.filter((entry) => entry.kind === 'status');
+
+		assert.strictEqual(state.runs[0].id, run.id);
+		assert.strictEqual(statusEntries.length, 2);
+		assert.strictEqual(statusEntries[0].runId, 1);
+		assert.strictEqual(statusEntries[1].runId, 2);
+		assert.deepStrictEqual(state.timeline.map((entry) => entry.kind), ['message', 'status', 'run', 'status']);
+	});
+
+	test('does not replay transient subagent tool state through session view state', () => {
+		const store = new ChatSessionStore();
+		const sessionId = store.getCurrentSessionId();
+		const run = store.startRun(sessionId, {
+			title: 'Task Assessment Agent',
+			kind: 'code_review'
+		});
+
+		store.setRunTransientToolStatus(sessionId, run.id, '正在调用工具 `read_file`...');
+
+		const liveRun = store.getRun(sessionId, run.id);
+		const viewState = store.getViewState(sessionId);
+
+		assert.strictEqual(liveRun?.transientToolStatusText, '正在调用工具 `read_file`...');
+		assert.strictEqual(viewState.runs[0].transientToolStatusText, '');
+	});
 });

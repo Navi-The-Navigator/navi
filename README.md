@@ -65,6 +65,7 @@ Navi 是一个面向编程场景的 VS Code 扩展，强调“任务驱动 + 思
 - VS Code 扩展基础脚手架（TypeScript + Webpack）
 - Activity Bar 中的 Navi 侧边栏入口
 - 基础 Webview 聊天界面
+- 主 Agent 可委派的独立 Code Review Agent
 - DeepSeek 模型配置入口
 - MCP 工具接入配置入口
 - 本地测试与 GitHub PR 测试工作流

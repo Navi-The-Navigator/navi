@@ -23,6 +23,40 @@ type RenderableMessage = {
 	text: string;
 };
 
+type ChatRunKind = 'subagent' | 'code_review';
+
+type ChatRunStatus = 'running' | 'completed' | 'error' | 'cancelled';
+
+type ChatRunEventKind = 'progress' | 'tool' | 'elapsed' | 'error';
+
+type ChatRunEvent = {
+	id: string;
+	kind: ChatRunEventKind;
+	text: string;
+	createdAt: number;
+	transient?: boolean;
+	status?: 'started' | 'finished';
+	toolName?: string;
+};
+
+type ChatRun = {
+	id: string;
+	title: string;
+	kind: ChatRunKind;
+	status: ChatRunStatus;
+	createdAt: number;
+	startedAt: number;
+	endedAt?: number;
+	elapsedText?: string;
+	parentRunId?: string;
+	collapsed: boolean;
+	autoCollapse: boolean;
+	transientToolStatusText: string;
+	activeAssistantText: string;
+	finalAssistantText: string;
+	events: ChatRunEvent[];
+};
+
 type ChatStatusEntry = {
 	kind: 'progress' | 'elapsed';
 	text: string;
@@ -32,6 +66,7 @@ type ChatStatusEntry = {
 
 type ChatSessionViewState = {
 	timeline: ChatTimelineEntry[];
+	runs: ChatRun[];
 	isGenerating: boolean;
 	activeAssistantText: string;
 	activeRunId: number;
@@ -42,6 +77,11 @@ type ChatTimelineEntry =
 		kind: 'message';
 		role: ChatRole;
 		text: string;
+		createdAt: number;
+	}
+	| {
+		kind: 'run';
+		runId: string;
 		createdAt: number;
 	}
 	| {
@@ -66,6 +106,7 @@ type SidebarMessage = {
 	activeRunId?: number;
 	title?: string;
 	runId?: number;
+	run?: ChatRun;
 	kind?: ChatStatusEntry['kind'];
 	statusEntries?: ChatStatusEntry[];
 	activeAssistantText?: string;
@@ -105,6 +146,7 @@ type SidebarMessage = {
 	todoCompleted?: boolean;
 	nextTitle?: string;
 	preview?: string;
+	collapsed?: boolean;
 };
 
 declare function acquireVsCodeApi(): {
@@ -116,7 +158,9 @@ declare function acquireVsCodeApi(): {
 const DEFAULT_WELCOME_MESSAGE =
 	'你今天想构建什么？直接贴需求、报错或相关代码；我会先读取项目上下文，并在聊天区实时同步当前进度，再给你可立即执行的下一步。';
 const DEFAULT_EMPTY_ASSISTANT_MESSAGE = '我暂时没有生成可显示的文本响应。';
+const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 120;
 const TODO_BOTTOM_STICKY_THRESHOLD_PX = 120;
+const COLLAPSE_TRANSITION_MS = 240;
 
 const markdown = new MarkdownIt({
 	html: false,
@@ -168,6 +212,14 @@ const progressRunFinalizeTimeouts = new Map<number, ReturnType<typeof setTimeout
 let assistantSentDelta = false;
 let cancellationInFlight = false;
 let todoCollapsed = false;
+let mainToolStatusSuppressed = false;
+const runPanelEls = new Map<string, HTMLDivElement>();
+const runPanelProgressCollapsed = new Map<string, boolean>();
+const runPanelProgressTouched = new Set<string>();
+const runPanelProgressFinalizeTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const runPanelToolStatusHideTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const runPanelToolStatusClearModes = new Map<string, 'keep' | 'hide'>();
+const runPanelAutoScrollSuppressed = new Set<string>();
 
 function requireElement<T extends Element>(selector: string): T {
 	const element = document.querySelector<T>(selector);
@@ -339,7 +391,7 @@ function setLoading(isLoading: boolean): void {
 		startAckTimeout = null;
 	}
 	if (isLoading) {
-		toolCallSlot.classList.remove('hidden');
+		toolCallSlot.classList.toggle('hidden', mainToolStatusSuppressed);
 		loading.classList.add('show');
 		sendBtn.disabled = false;
 		sendBtn.textContent = 'Cancel';
@@ -363,6 +415,11 @@ function scrollChatToBottom(smooth: boolean): void {
 		return;
 	}
 	chatBody.scrollTop = chatBody.scrollHeight;
+}
+
+function isChatNearBottom(thresholdPx = CHAT_BOTTOM_STICKY_THRESHOLD_PX): boolean {
+	const distanceToBottom = chatBody.scrollHeight - chatBody.scrollTop - chatBody.clientHeight;
+	return distanceToBottom <= thresholdPx;
 }
 
 function appendMessage(role: ChatRole, text: string, smoothScrollToBottom = false): HTMLDivElement {
@@ -433,6 +490,7 @@ function finishAssistantMessage(): void {
 function resetChat(): void {
 	chatBody.querySelectorAll('.message').forEach((node) => node.remove());
 	chatBody.querySelectorAll('.tool-status').forEach((node) => node.remove());
+	chatBody.querySelectorAll('.run-panel').forEach((node) => node.remove());
 	keepTransientToolStatusAtBottom();
 	toolCallSlot.classList.add('empty');
 	toolCallSlot.textContent = '';
@@ -446,6 +504,18 @@ function resetChat(): void {
 	progressRunSummaryEls.clear();
 	progressRunNodes.clear();
 	progressRunCollapsed.clear();
+	runPanelEls.clear();
+	runPanelProgressCollapsed.clear();
+	runPanelProgressTouched.clear();
+	runPanelProgressFinalizeTimeouts.forEach((timeoutId) => {
+		clearTimeout(timeoutId);
+	});
+	runPanelProgressFinalizeTimeouts.clear();
+	runPanelToolStatusHideTimeouts.forEach((timeoutId) => {
+		clearTimeout(timeoutId);
+	});
+	runPanelToolStatusHideTimeouts.clear();
+	runPanelAutoScrollSuppressed.clear();
 	activeProgressRunId = 0;
 	assistantSentDelta = false;
 	cancellationInFlight = false;
@@ -453,6 +523,415 @@ function resetChat(): void {
 	appendMessage('assistant', DEFAULT_WELCOME_MESSAGE);
 	activeAssistantMessage = null;
 	setLoading(false);
+}
+
+function getRunStatusLabel(status: ChatRunStatus): string {
+	if (status === 'running') {
+		return '运行中';
+	}
+	if (status === 'completed') {
+		return '已完成';
+	}
+	if (status === 'cancelled') {
+		return '已取消';
+	}
+	return '失败';
+}
+
+function findRunInsertionAnchor(runId: string): Element {
+	const existingPanel = runPanelEls.get(runId);
+	if (existingPanel?.isConnected) {
+		return existingPanel;
+	}
+	return toolCallSlot;
+}
+
+function animateCollapsibleSection(
+	element: HTMLDivElement,
+	collapsed: boolean,
+	expandedMaxHeight: string,
+	getIsCollapsed: () => boolean
+): void {
+	if (collapsed) {
+		element.style.maxHeight = `${element.scrollHeight}px`;
+		requestAnimationFrame(() => {
+			element.classList.add('collapsed');
+			element.style.maxHeight = '0px';
+		});
+		return;
+	}
+
+	element.classList.remove('collapsed');
+	element.style.maxHeight = '0px';
+	requestAnimationFrame(() => {
+		element.style.maxHeight = `${element.scrollHeight}px`;
+		setTimeout(() => {
+			if (!getIsCollapsed()) {
+				element.style.maxHeight = expandedMaxHeight;
+			}
+		}, COLLAPSE_TRANSITION_MS);
+	});
+}
+
+function setRunPanelCollapsed(panel: HTMLDivElement, collapsed: boolean): void {
+	const body = panel.querySelector<HTMLDivElement>('.run-panel-body');
+	const summary = panel.querySelector<HTMLDivElement>('.run-panel-summary');
+	const toggle = panel.querySelector<HTMLButtonElement>('.run-panel-toggle');
+	if (!body || !summary || !toggle) {
+		return;
+	}
+	const nextCollapsed = !!collapsed;
+	const currentCollapsed = body.classList.contains('collapsed');
+	panel.classList.toggle('collapsed', nextCollapsed);
+	toggle.setAttribute('aria-expanded', String(!nextCollapsed));
+	toggle.textContent = nextCollapsed ? '展开' : '折叠';
+	if (currentCollapsed === nextCollapsed) {
+		if (nextCollapsed) {
+			summary.classList.add('show');
+			body.classList.add('collapsed');
+			body.style.maxHeight = '0px';
+			return;
+		}
+		summary.classList.remove('show');
+		body.classList.remove('collapsed');
+		body.style.maxHeight = 'none';
+		return;
+	}
+	if (nextCollapsed) {
+		animateCollapsibleSection(body, true, 'none', () => panel.classList.contains('collapsed'));
+		requestAnimationFrame(() => {
+			summary.classList.add('show');
+		});
+		return;
+	}
+	summary.classList.remove('show');
+	animateCollapsibleSection(body, false, 'none', () => panel.classList.contains('collapsed'));
+}
+
+function getRunPanelProgressNodes(list: HTMLDivElement): HTMLDivElement[] {
+	return Array.from(list.querySelectorAll<HTMLDivElement>('.progress-entry'));
+}
+
+function setRunProgressCollapsed(runId: string, collapsed: boolean): void {
+	const panel = runPanelEls.get(runId);
+	if (!panel) {
+		return;
+	}
+	const list = panel.querySelector<HTMLDivElement>('.run-panel-progress-list');
+	const summary = panel.querySelector<HTMLButtonElement>('.run-panel-progress-summary');
+	if (!list || !summary) {
+		return;
+	}
+	const nextCollapsed = !!collapsed;
+	runPanelProgressCollapsed.set(runId, nextCollapsed);
+	const previousTimeout = runPanelProgressFinalizeTimeouts.get(runId);
+	if (previousTimeout) {
+		clearTimeout(previousTimeout);
+		runPanelProgressFinalizeTimeouts.delete(runId);
+	}
+	const nodes = getRunPanelProgressNodes(list);
+
+	if (!nextCollapsed) {
+		nodes.forEach((node) => {
+			node.classList.remove('progress-collapsed-done');
+			node.style.display = '';
+		});
+		requestAnimationFrame(() => {
+			if (runPanelProgressCollapsed.get(runId)) {
+				return;
+			}
+			nodes.forEach((node) => {
+				node.classList.remove('progress-hidden');
+			});
+		});
+	} else {
+		nodes.forEach((node) => {
+			node.classList.add('progress-hidden');
+		});
+		const timeoutId = setTimeout(() => {
+			if (!runPanelProgressCollapsed.get(runId)) {
+				return;
+			}
+			getRunPanelProgressNodes(list).forEach((node) => {
+				node.classList.add('progress-collapsed-done');
+				node.style.display = 'none';
+			});
+		}, COLLAPSE_TRANSITION_MS);
+		runPanelProgressFinalizeTimeouts.set(runId, timeoutId);
+	}
+
+		list.dataset.collapsed = String(nextCollapsed);
+		list.classList.toggle('collapsed', nextCollapsed);
+	summary.classList.toggle('expanded', !nextCollapsed);
+		summary.setAttribute('aria-expanded', String(!nextCollapsed));
+	summary.textContent = nextCollapsed
+		? `进度记录（${nodes.length}）已折叠，点击展开`
+		: `进度记录（${nodes.length}）点击折叠`;
+}
+
+function createRunPanel(run: ChatRun): HTMLDivElement {
+	const panel = document.createElement('div');
+	panel.className = 'run-panel';
+	panel.dataset.runId = run.id;
+
+	const header = document.createElement('div');
+	header.className = 'run-panel-header';
+
+	const titleWrap = document.createElement('div');
+	titleWrap.className = 'run-panel-title-wrap';
+	const title = document.createElement('div');
+	title.className = 'run-panel-title';
+	const meta = document.createElement('div');
+	meta.className = 'run-panel-meta';
+	titleWrap.appendChild(title);
+	titleWrap.appendChild(meta);
+
+	const toggle = document.createElement('button');
+	toggle.type = 'button';
+	toggle.className = 'run-panel-toggle';
+	toggle.textContent = '折叠';
+	toggle.addEventListener('click', (event) => {
+		event.stopPropagation();
+		const nextCollapsed = !panel.classList.contains('collapsed');
+		runPanelAutoScrollSuppressed.add(run.id);
+		setRunPanelCollapsed(panel, nextCollapsed);
+		vscode.postMessage({ type: 'chat:toggleRunCollapsed', runId: run.id, collapsed: nextCollapsed });
+	});
+
+	header.appendChild(titleWrap);
+	header.appendChild(toggle);
+
+	const summary = document.createElement('div');
+	summary.className = 'run-panel-summary';
+
+	const body = document.createElement('div');
+	body.className = 'run-panel-body';
+
+	const toolSlot = document.createElement('div');
+	toolSlot.className = 'tool-call-slot transient-tool-status run-panel-tool-slot hidden empty';
+
+	const progressSummary = document.createElement('button');
+	progressSummary.type = 'button';
+	progressSummary.className = 'progress-summary run-panel-progress-summary';
+	progressSummary.addEventListener('click', () => {
+		runPanelProgressTouched.add(run.id);
+		const current = !!runPanelProgressCollapsed.get(run.id);
+		setRunProgressCollapsed(run.id, !current);
+	});
+
+	const progressList = document.createElement('div');
+	progressList.className = 'run-panel-progress-list';
+
+	const assistant = document.createElement('div');
+	assistant.className = 'message assistant run-panel-assistant';
+
+	const metaList = document.createElement('div');
+	metaList.className = 'run-panel-meta-list';
+
+	body.appendChild(progressSummary);
+	body.appendChild(progressList);
+	body.appendChild(assistant);
+	body.appendChild(metaList);
+	body.appendChild(toolSlot);
+
+	panel.appendChild(header);
+	panel.appendChild(summary);
+	panel.appendChild(body);
+	runPanelEls.set(run.id, panel);
+	chatBody.insertBefore(panel, toolCallSlot);
+	return panel;
+}
+
+function setMainToolStatusSuppressed(suppressed: boolean): void {
+	mainToolStatusSuppressed = !!suppressed;
+	if (mainToolStatusSuppressed) {
+		clearTransientToolStatus(true);
+		toolCallSlot.classList.add('hidden');
+		return;
+	}
+	if (isBusy) {
+		toolCallSlot.classList.add('hidden');
+	}
+}
+
+function keepRunPanelTransientToolStatusAtBottom(runId: string): void {
+	const panel = runPanelEls.get(runId);
+	if (!panel) {
+		return;
+	}
+	const body = panel.querySelector<HTMLDivElement>('.run-panel-body');
+	const toolSlot = panel.querySelector<HTMLDivElement>('.run-panel-tool-slot');
+	if (!body || !toolSlot) {
+		return;
+	}
+	body.appendChild(toolSlot);
+}
+
+function clearRunPanelTransientToolStatus(runId: string, immediate = false, keepVisible = false): void {
+	const panel = runPanelEls.get(runId);
+	if (!panel) {
+		return;
+	}
+	const toolSlot = panel.querySelector<HTMLDivElement>('.run-panel-tool-slot');
+	if (!toolSlot) {
+		return;
+	}
+	const previousTimeout = runPanelToolStatusHideTimeouts.get(runId);
+	const nextClearMode = keepVisible ? 'keep' : 'hide';
+	if (previousTimeout) {
+		if (!immediate && runPanelToolStatusClearModes.get(runId) === nextClearMode) {
+			return;
+		}
+		clearTimeout(previousTimeout);
+		runPanelToolStatusHideTimeouts.delete(runId);
+	}
+	runPanelToolStatusClearModes.set(runId, nextClearMode);
+	const finalize = () => {
+		if (keepVisible) {
+			toolSlot.classList.remove('hidden');
+			keepRunPanelTransientToolStatusAtBottom(runId);
+		} else {
+			toolSlot.classList.add('hidden');
+		}
+		toolSlot.classList.add('empty');
+		toolSlot.classList.remove('tool-status-fade-out');
+		toolSlot.textContent = '';
+	};
+	if (immediate || !toolSlot.textContent?.trim()) {
+		finalize();
+		return;
+	}
+	const timeoutId = setTimeout(() => {
+		toolSlot.classList.add('tool-status-fade-out');
+		const fadeTimeoutId = setTimeout(() => {
+			finalize();
+			runPanelToolStatusHideTimeouts.delete(runId);
+		}, 220);
+		runPanelToolStatusHideTimeouts.set(runId, fadeTimeoutId);
+	}, 1500);
+	runPanelToolStatusHideTimeouts.set(runId, timeoutId);
+}
+
+function setRunPanelTransientToolStatus(runId: string, text: string): void {
+	const panel = runPanelEls.get(runId);
+	if (!panel) {
+		return;
+	}
+	const toolSlot = panel.querySelector<HTMLDivElement>('.run-panel-tool-slot');
+	if (!toolSlot) {
+		return;
+	}
+	const previousTimeout = runPanelToolStatusHideTimeouts.get(runId);
+	if (previousTimeout) {
+		clearTimeout(previousTimeout);
+		runPanelToolStatusHideTimeouts.delete(runId);
+	}
+	runPanelToolStatusClearModes.delete(runId);
+	if (toolSlot.textContent === text && !toolSlot.classList.contains('hidden')) {
+		keepRunPanelTransientToolStatusAtBottom(runId);
+		toolSlot.classList.remove('tool-status-fade-out');
+		toolSlot.classList.remove('empty');
+		return;
+	}
+	keepRunPanelTransientToolStatusAtBottom(runId);
+	toolSlot.classList.remove('hidden');
+	toolSlot.classList.remove('empty');
+	toolSlot.classList.remove('tool-status-fade-out');
+	toolSlot.classList.remove('tool-status-switch');
+	toolSlot.textContent = text;
+	void toolSlot.offsetWidth;
+	toolSlot.classList.add('tool-status-switch');
+}
+
+function renderRunPanel(run: ChatRun): void {
+	const shouldStickToBottom = isChatNearBottom();
+	const suppressAutoScroll = runPanelAutoScrollSuppressed.delete(run.id);
+	const existingPanel = runPanelEls.get(run.id);
+	if (!existingPanel && activeProgressRunId) {
+		setProgressRunCollapsed(activeProgressRunId, true);
+		activeProgressRunId = 0;
+	}
+	const panel = existingPanel ?? createRunPanel(run);
+	const title = panel.querySelector<HTMLDivElement>('.run-panel-title');
+	const meta = panel.querySelector<HTMLDivElement>('.run-panel-meta');
+	const toggle = panel.querySelector<HTMLButtonElement>('.run-panel-toggle');
+	const summary = panel.querySelector<HTMLDivElement>('.run-panel-summary');
+	const toolSlot = panel.querySelector<HTMLDivElement>('.run-panel-tool-slot');
+	const progressSummary = panel.querySelector<HTMLButtonElement>('.run-panel-progress-summary');
+	const progressList = panel.querySelector<HTMLDivElement>('.run-panel-progress-list');
+	const assistant = panel.querySelector<HTMLDivElement>('.run-panel-assistant');
+	const metaList = panel.querySelector<HTMLDivElement>('.run-panel-meta-list');
+	if (!title || !meta || !toggle || !summary || !toolSlot || !progressSummary || !progressList || !assistant || !metaList) {
+		return;
+	}
+
+	title.textContent = run.title || 'Sub Agent';
+	meta.textContent = [getRunStatusLabel(run.status), run.elapsedText || ''].filter(Boolean).join(' · ');
+	toggle.textContent = run.collapsed ? '展开' : '折叠';
+	summary.textContent = `${run.title || 'Sub Agent'} · ${getRunStatusLabel(run.status)}${run.elapsedText ? ` · ${run.elapsedText}` : ''}`;
+
+	if (run.transientToolStatusText) {
+		setRunPanelTransientToolStatus(run.id, run.transientToolStatusText);
+	} else {
+		clearRunPanelTransientToolStatus(run.id, false, run.status === 'running');
+	}
+
+	const progressEvents = run.events.filter((event) => event.kind === 'progress');
+	const autoCollapseProgress = !!(
+		run.activeAssistantText.trim() || run.finalAssistantText.trim() || run.status !== 'running'
+	);
+	if (!runPanelProgressTouched.has(run.id)) {
+		runPanelProgressCollapsed.set(run.id, autoCollapseProgress);
+	}
+	const progressCollapsed = runPanelProgressCollapsed.get(run.id) ?? autoCollapseProgress;
+	const progressSignature = progressEvents.map((event) => event.id).join('|');
+	if (progressList.dataset.signature !== progressSignature) {
+		const previousProgressIds = new Set((progressList.dataset.signature || '').split('|').filter(Boolean));
+		progressList.dataset.signature = progressSignature;
+		progressList.replaceChildren(
+			...progressEvents.map((event) => {
+				const el = document.createElement('div');
+				el.className = 'tool-status progress-entry';
+				el.textContent = event.text || '';
+				if (!progressCollapsed && !previousProgressIds.has(event.id)) {
+					el.classList.add('progress-entry-appear');
+				}
+				if (progressCollapsed) {
+					el.classList.add('progress-hidden', 'progress-collapsed-done');
+					el.style.display = 'none';
+				}
+				return el;
+			})
+		);
+	}
+	progressSummary.style.display = progressEvents.length > 0 ? '' : 'none';
+	setRunProgressCollapsed(run.id, progressCollapsed);
+
+	const assistantText = run.finalAssistantText || run.activeAssistantText;
+	assistant.style.display = assistantText ? '' : 'none';
+	assistant.dataset.rawMarkdown = assistantText || '';
+	assistant.innerHTML = assistantText ? renderMarkdown(assistantText) : '';
+
+	metaList.innerHTML = '';
+	run.events
+		.filter((event) => event.kind === 'elapsed' || event.kind === 'error')
+		.forEach((event) => {
+			const el = document.createElement('div');
+			el.className = `tool-status elapsed-status${event.kind === 'error' ? ' run-panel-error' : ''}`;
+			el.textContent = event.text || '';
+			metaList.appendChild(el);
+		});
+
+	setRunPanelCollapsed(panel, run.collapsed);
+	keepRunPanelTransientToolStatusAtBottom(run.id);
+	const insertionAnchor = findRunInsertionAnchor(run.id);
+	if (insertionAnchor !== panel) {
+		chatBody.insertBefore(panel, insertionAnchor);
+	}
+	keepTransientToolStatusAtBottom();
+	if (!suppressAutoScroll && shouldStickToBottom) {
+		scrollChatToBottom(false);
+	}
 }
 
 function getProgressRunNodes(runId: number): HTMLDivElement[] {
@@ -762,7 +1241,7 @@ function renderSessionHistory(messages: RenderableMessage[]): void {
 	});
 }
 
-function clearTransientToolStatus(): void {
+function clearTransientToolStatus(forceHide = false): void {
 	if (transientToolStatusHideTimeout) {
 		clearTimeout(transientToolStatusHideTimeout);
 		transientToolStatusHideTimeout = null;
@@ -771,7 +1250,7 @@ function clearTransientToolStatus(): void {
 	toolCallSlot.classList.remove('tool-status-fade-out');
 	toolCallSlot.textContent = '';
 	transientToolStatusEl = null;
-	if (!isBusy) {
+	if (!isBusy || forceHide || mainToolStatusSuppressed) {
 		toolCallSlot.classList.add('hidden');
 	}
 }
@@ -798,6 +1277,9 @@ function fadeTransientToolStatus(): void {
 }
 
 function appendTransientToolStatus(text: string): void {
+	if (mainToolStatusSuppressed) {
+		return;
+	}
 	transientToolStatusEl = toolCallSlot;
 	keepTransientToolStatusAtBottom();
 
@@ -806,6 +1288,7 @@ function appendTransientToolStatus(text: string): void {
 		transientToolStatusHideTimeout = null;
 	}
 
+	toolCallSlot.classList.remove('hidden');
 	toolCallSlot.classList.remove('empty');
 	toolCallSlot.classList.remove('tool-status-fade-out');
 	toolCallSlot.classList.remove('tool-status-switch');
@@ -817,6 +1300,9 @@ function appendTransientToolStatus(text: string): void {
 }
 
 function appendToolStatus(text: string, transient: boolean): void {
+	if (mainToolStatusSuppressed) {
+		return;
+	}
 	if (transient) {
 		appendTransientToolStatus(text);
 		return;
@@ -880,9 +1366,17 @@ function renderSessionState(state: ChatSessionViewState | null): void {
 	}
 
 	const timeline = Array.isArray(state.timeline) ? state.timeline : [];
+	const runs = new Map((Array.isArray(state.runs) ? state.runs : []).map((run) => [run.id, run]));
 	timeline.forEach((entry) => {
 		if (entry.kind === 'message') {
 			appendMessage(entry.role === 'user' ? 'user' : 'assistant', entry.text || '');
+			return;
+		}
+		if (entry.kind === 'run') {
+			const run = runs.get(entry.runId || '');
+			if (run) {
+				renderRunPanel(run);
+			}
 			return;
 		}
 		appendHistoricalStatus(entry.text || '', entry.statusKind || 'progress', Number(entry.runId));
@@ -1012,6 +1506,12 @@ window.addEventListener('message', (event: MessageEvent<SidebarMessage>) => {
 	if (message.type === 'chat:toolStatusDone') {
 		fadeTransientToolStatus();
 	}
+	if (message.type === 'chat:toolStatusSuspend') {
+		setMainToolStatusSuppressed(true);
+	}
+	if (message.type === 'chat:toolStatusResume') {
+		setMainToolStatusSuppressed(false);
+	}
 	if (message.type === 'chat:elapsed') {
 		appendElapsedStatus(message.text || '');
 	}
@@ -1039,6 +1539,11 @@ window.addEventListener('message', (event: MessageEvent<SidebarMessage>) => {
 	if (message.type === 'chat:sessionState') {
 		if (message.sessionId === currentSessionId) {
 			renderSessionState(message.state || null);
+		}
+	}
+	if (message.type === 'chat:runState') {
+		if (message.sessionId === currentSessionId && message.run) {
+			renderRunPanel(message.run);
 		}
 	}
 	if (message.type === 'chat:todos') {

@@ -1,18 +1,14 @@
 import * as vscode from 'vscode';
-import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, type MessageContent } from '@langchain/core/messages';
 import { type DynamicTool, type StructuredToolInterface } from '@langchain/core/tools';
 import { createReactAgent } from '@langchain/langgraph/prebuilt';
 import { MemorySaver } from '@langchain/langgraph';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
 import { SYSTEM_PROMPT } from './config';
+import { createDeepSeekChatModel, resolveRecursionLimit } from './modelFactory';
 import { parseMcpServerSettings, toEnabledMcpConnections } from '../mcp/config';
 import type { RenderableMessage } from '../types/chat';
 import { extractMessageText, getMessageType } from '../utils/message';
-
-const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
-const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
-const DEFAULT_RECURSION_LIMIT = 150;
 const DEFAULT_STREAM_RETRY_LIMIT = 1;
 
 type StreamCallbacks = {
@@ -37,7 +33,7 @@ export class DeepSeekChatGateway {
 			try {
 				this.ensureNotCancelled(callbacks);
 				const agent = await this.getOrCreateAgent();
-				const recursionLimit = this.resolveRecursionLimit(vscode.workspace.getConfiguration('navi'));
+				const recursionLimit = resolveRecursionLimit(vscode.workspace.getConfiguration('navi'));
 				const stream = await agent.streamEvents(
 					{
 						messages: [new HumanMessage(prompt)]
@@ -167,21 +163,7 @@ export class DeepSeekChatGateway {
 
 	private async createAgent(): Promise<ReturnType<typeof createReactAgent>> {
 		const config = vscode.workspace.getConfiguration('navi');
-		const apiKey = this.resolveApiKey(config);
-		if (!apiKey) {
-			throw new Error('缺少 API Key。请先通过 Settings 配置 navi.deepseekApiKey，或确认使用环境变量 DEEPSEEK_API_KEY。');
-		}
-
-		const model = this.resolveModel(config);
-		const baseURL = this.resolveBaseUrl(config);
-		const temperature = config.get<number>('temperature', 0.2);
-
-		const chatModel = new ChatOpenAI({
-			apiKey,
-			model,
-			temperature,
-			configuration: { baseURL }
-		});
+		const chatModel = createDeepSeekChatModel(config);
 
 		const tools = [...this.tools, ...(await this.loadMcpTools(config))];
 		return createReactAgent({
@@ -241,40 +223,6 @@ export class DeepSeekChatGateway {
 
 		await this.mcpClient.close();
 		this.mcpClient = undefined;
-	}
-
-	private resolveApiKey(config: vscode.WorkspaceConfiguration): string {
-		const configuredApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
-		if (configuredApiKey) {
-			return configuredApiKey;
-		}
-
-		return (process.env.DEEPSEEK_API_KEY ?? '').trim();
-	}
-
-	private resolveBaseUrl(config: vscode.WorkspaceConfiguration): string {
-		const configuredBaseUrl = (config.get<string>('deepseekBaseUrl', DEFAULT_DEEPSEEK_BASE_URL) ?? '').trim();
-		return configuredBaseUrl || DEFAULT_DEEPSEEK_BASE_URL;
-	}
-
-	private resolveModel(config: vscode.WorkspaceConfiguration): string {
-		const configuredModel = (config.get<string>('deepseekModel', DEFAULT_DEEPSEEK_MODEL) ?? '').trim();
-		return configuredModel || DEFAULT_DEEPSEEK_MODEL;
-	}
-
-	private resolveRecursionLimit(config: vscode.WorkspaceConfiguration): number {
-		const value = config.get<number>('recursionLimit', DEFAULT_RECURSION_LIMIT);
-		if (!Number.isFinite(value)) {
-			return DEFAULT_RECURSION_LIMIT;
-		}
-		const integer = Math.trunc(value);
-		if (integer < 10) {
-			return 10;
-		}
-		if (integer > 200) {
-			return 200;
-		}
-		return integer;
 	}
 
 	private shouldRetryStreamError(error: unknown): boolean {

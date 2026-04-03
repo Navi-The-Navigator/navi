@@ -719,6 +719,103 @@ body {
 .progress-summary.expanded {
 	color: var(--vscode-foreground);
 }
+.run-panel {
+	align-self: stretch;
+	margin: 4px 0 8px 16px;
+	border-left: 1px solid var(--vscode-input-border);
+	padding-left: 10px;
+	opacity: 1;
+	transition: opacity 180ms ease, transform 220ms ease;
+}
+.run-panel-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+}
+.run-panel-title-wrap {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.run-panel-title {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--vscode-foreground);
+	word-break: break-word;
+}
+.run-panel-meta,
+.run-panel-summary {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	line-height: 1.4;
+}
+.run-panel-summary {
+	display: none;
+	padding-top: 2px;
+	opacity: 0;
+	transition: opacity 180ms ease;
+}
+.run-panel-summary.show {
+	display: block;
+	opacity: 1;
+}
+.run-panel-toggle {
+	border: none;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	cursor: pointer;
+	padding: 0;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.run-panel-body {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	overflow: hidden;
+	max-height: 1200px;
+	opacity: 1;
+	transform: translateY(0);
+	transition: max-height 240ms ease, opacity 180ms ease, margin-top 240ms ease, transform 240ms ease;
+	margin-top: 4px;
+}
+.run-panel-body.collapsed {
+	max-height: 0;
+	opacity: 0;
+	margin-top: 0;
+	transform: translateY(-4px);
+	pointer-events: none;
+}
+.run-panel-progress-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	overflow: hidden;
+}
+.run-panel-progress-list.collapsed {
+	pointer-events: none;
+}
+.run-panel-tool-slot {
+	min-height: 18px;
+	line-height: 18px;
+	margin-top: 2px;
+	padding: 0;
+	flex-shrink: 0;
+}
+.run-panel-assistant {
+	padding-top: 4px;
+}
+.run-panel-meta-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.run-panel-error {
+	color: var(--vscode-errorForeground);
+}
 .elapsed-status {
 	align-self: flex-start;
 	text-align: left;

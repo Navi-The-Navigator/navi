@@ -11,6 +11,14 @@ import {
 	createGetFocusCodeRegionsTool,
 	type GetFocusCodeRegionsInput
 } from './agent/tools/getFocusCodeRegionsTool';
+import { createGetWorkspaceErrorsTool } from './agent/tools/getWorkspaceErrorsTool';
+import { createCodeReviewTool } from './agent/agents/codeReviewAgentTool';
+import type {
+	SubagentTraceCallbacks,
+	SubagentTraceErrorPayload,
+	SubagentTraceFinishPayload,
+	SubagentTraceStartInput
+} from './agent/subagentTrace';
 import { createManageTodosTool } from './agent/tools/manageTodosTool';
 import { createProjectStructureTool } from './agent/tools/projectStructureTool';
 import { createReadFileTool } from './agent/tools/readFileTool';
@@ -19,7 +27,7 @@ import { createSearchFilesTool } from './agent/tools/searchFilesTool';
 import { createUpdateProgressTool } from './agent/tools/updateProgressTool';
 import { ChatSessionStore } from './chat/sessionStore';
 import { SettingsManager } from './settings/settingsManager';
-import type { ChatFocusTarget, ChatInboundMessage } from './types/chat';
+import type { ChatFocusTarget, ChatInboundMessage, ChatRun } from './types/chat';
 import { createFocusTargetId } from './utils/id';
 import { getFocusHtml } from './webview/focusHtml';
 import { getSidebarHtml } from './webview/sidebarHtml';
@@ -55,6 +63,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	private cancelGenerationRequested = false;
 	private activeGenerationAbortController?: AbortController;
 	private activeGenerationSessionId?: string;
+	private readonly activeSubagentRunIds = new Set<string>();
 	private activeWebview?: vscode.Webview;
 	private activeFocusWebview?: vscode.Webview;
 
@@ -109,6 +118,12 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			createReadFileTool(),
 			createSearchFilesTool(),
 			createSearchFileContentTool(),
+			createGetWorkspaceErrorsTool(),
+			createCodeReviewTool(undefined, undefined, this.createSubagentTraceCallbacks({
+				fallbackTitle: 'Task Assessment Agent',
+				kind: 'code_review',
+				cancelledFinalText: '已取消本次子任务。'
+			})),
 			createFocusCodeRegionTool({
 				getCurrentSessionId: () => this.sessionStore.getCurrentSessionId(),
 				focusRegion: async (sessionId, input) => this.focusUserCodeRegion(sessionId, input)
@@ -388,6 +403,17 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
+		if (message.type === 'chat:toggleRunCollapsed') {
+			const sessionId = this.sessionStore.getCurrentSessionId();
+			const runId = (message.runId ?? '').trim();
+			if (!runId) {
+				return;
+			}
+			this.sessionStore.setRunCollapsed(sessionId, runId, !!message.collapsed);
+			await this.postRunStateToActiveWebview(sessionId, runId);
+			return;
+		}
+
 		if (message.type === 'chat:cancelGeneration') {
 			if (this.isGenerating) {
 				this.cancelGenerationRequested = true;
@@ -444,6 +470,12 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 			const assistantText = await this.gateway.streamAssistantReply(sessionId, prompt, {
 				onToolStart: async (toolName) => {
+					if (this.activeSubagentRunIds.size > 0) {
+						return;
+					}
+					if (toolName === 'code_review_agent') {
+						return;
+					}
 					await webview.postMessage({
 						type: 'chat:toolStatus',
 						text: `正在调用工具 \`${toolName}\`...`,
@@ -451,11 +483,20 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 					});
 				},
 				onToolEnd: async () => {
+					if (this.activeSubagentRunIds.size > 0) {
+						return;
+					}
+					if (!this.activeWebview) {
+						return;
+					}
 					await webview.postMessage({
 						type: 'chat:toolStatusDone'
 					});
 				},
 				onAssistantDelta: async (delta) => {
+					if (this.activeSubagentRunIds.size > 0) {
+						return;
+					}
 					this.sessionStore.appendAssistantDelta(sessionId, delta);
 					await webview.postMessage({
 						type: 'chat:assistantDelta',
@@ -498,6 +539,8 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			if (shouldPersistElapsed && elapsedText) {
 				this.sessionStore.appendStatusEntry(sessionId, 'elapsed', elapsedText);
 			}
+			this.activeSubagentRunIds.clear();
+			await this.setMainToolStatusSuspended(false);
 			this.isGenerating = false;
 			this.cancelGenerationRequested = false;
 			this.activeGenerationSessionId = undefined;
@@ -612,6 +655,34 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		});
 	}
 
+	private async postRunState(webview: vscode.Webview, sessionId: string, run: ChatRun): Promise<void> {
+		await webview.postMessage({
+			type: 'chat:runState',
+			sessionId,
+			run
+		});
+	}
+
+	private async postRunStateToActiveWebview(sessionId: string, runId: string): Promise<void> {
+		if (!this.activeWebview) {
+			return;
+		}
+		const run = this.sessionStore.getRun(sessionId, runId);
+		if (!run) {
+			return;
+		}
+		await this.postRunState(this.activeWebview, sessionId, run);
+	}
+
+	private async setMainToolStatusSuspended(suppressed: boolean): Promise<void> {
+		if (!this.activeWebview) {
+			return;
+		}
+		await this.activeWebview.postMessage({
+			type: suppressed ? 'chat:toolStatusSuspend' : 'chat:toolStatusResume'
+		});
+	}
+
 	private async postFocusTarget(webview: vscode.Webview, sessionId: string): Promise<void> {
 		await webview.postMessage({
 			type: 'chat:focusTarget',
@@ -650,6 +721,103 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		await this.postTodos(webview, currentSessionId);
 		await this.postFocusTarget(webview, currentSessionId);
 		await this.postSessionViewState(webview, currentSessionId);
+	}
+
+	private createSubagentTraceCallbacks(input: {
+		fallbackTitle: string;
+		kind: ChatRun['kind'];
+		cancelledFinalText?: string;
+		autoCollapse?: boolean;
+	}): SubagentTraceCallbacks {
+		return {
+			start: async (startInput: SubagentTraceStartInput) => {
+				const sessionId = this.activeGenerationSessionId;
+				if (!sessionId) {
+					return undefined;
+				}
+				const run = this.sessionStore.startRun(sessionId, {
+					title: startInput.title || input.fallbackTitle,
+					kind: startInput.kind || input.kind,
+					parentRunId: startInput.parentRunId,
+					autoCollapse: input.autoCollapse
+				});
+				const shouldSuspendMainToolSlot = this.activeSubagentRunIds.size === 0;
+				this.activeSubagentRunIds.add(run.id);
+				if (shouldSuspendMainToolSlot) {
+					await this.setMainToolStatusSuspended(true);
+				}
+				await this.postRunStateToActiveWebview(sessionId, run.id);
+				return run.id;
+			},
+			onProgress: async (runId, text) => {
+				const sessionId = this.activeGenerationSessionId;
+				if (!sessionId) {
+					return;
+				}
+				this.sessionStore.appendRunProgress(sessionId, runId, text);
+				await this.postRunStateToActiveWebview(sessionId, runId);
+			},
+			onToolStart: async (runId, toolName) => {
+				const sessionId = this.activeGenerationSessionId;
+				if (!sessionId) {
+					return;
+				}
+				this.sessionStore.setRunTransientToolStatus(sessionId, runId, `正在调用工具 \`${toolName}\`...`);
+				await this.postRunStateToActiveWebview(sessionId, runId);
+			},
+			onToolEnd: async (runId, toolName) => {
+				const sessionId = this.activeGenerationSessionId;
+				if (!sessionId) {
+					return;
+				}
+				this.sessionStore.clearRunTransientToolStatus(sessionId, runId);
+				await this.postRunStateToActiveWebview(sessionId, runId);
+			},
+			onAssistantDelta: async (runId, delta) => {
+				const sessionId = this.activeGenerationSessionId;
+				if (!sessionId) {
+					return;
+				}
+				this.sessionStore.appendRunAssistantDelta(sessionId, runId, delta);
+				await this.postRunStateToActiveWebview(sessionId, runId);
+			},
+			onFinish: async (runId, payload: SubagentTraceFinishPayload) => {
+				const sessionId = this.activeGenerationSessionId;
+				if (!sessionId) {
+					return;
+				}
+				this.activeSubagentRunIds.delete(runId);
+				if (this.activeSubagentRunIds.size === 0) {
+					await this.setMainToolStatusSuspended(false);
+				}
+				this.sessionStore.finishRun(sessionId, runId, {
+					elapsedText: payload.elapsedText,
+					finalAssistantText: payload.finalText
+				});
+				await this.postRunStateToActiveWebview(sessionId, runId);
+			},
+			onError: async (runId, payload: SubagentTraceErrorPayload) => {
+				const sessionId = this.activeGenerationSessionId;
+				if (!sessionId) {
+					return;
+				}
+				this.activeSubagentRunIds.delete(runId);
+				if (this.activeSubagentRunIds.size === 0) {
+					await this.setMainToolStatusSuspended(false);
+				}
+				if (payload.message.includes('用户已取消')) {
+					this.sessionStore.finishRun(sessionId, runId, {
+						status: 'cancelled',
+						elapsedText: payload.elapsedText,
+						finalAssistantText: input.cancelledFinalText || '已取消本次子任务。'
+					});
+				} else {
+					this.sessionStore.failRun(sessionId, runId, payload.message, payload.elapsedText);
+				}
+				await this.postRunStateToActiveWebview(sessionId, runId);
+			},
+			getAbortSignal: () => this.activeGenerationAbortController?.signal
+		};
 	}
 
 	private async focusUserCodeRegion(sessionId: string, input: FocusCodeRegionInput): Promise<ChatFocusTarget> {
@@ -1137,7 +1305,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return {
 				preview: `请 Review 我选中的 ${targets.length} 个 Focus 区域。`,
 				prompt:
-					'请 review 我选中的 focus 区域，分析我的任务完成情况，以及最合理的下一步。\n\n选中的区域如下：\n' +
+					'请针对我选中的 focus 区域进行 Review，分析我的任务完成情况、潜在问题，以及最合理的下一步。\n\n选中的区域如下：\n' +
 					regionLines
 			};
 		}
@@ -1154,7 +1322,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		return {
 			preview: `请 Review 我选中的 ${targets.length} 个 Focus 区域。`,
 			prompt:
-				'请 review 我选中的 focus 区域，分析我的任务完成情况，以及最合理的下一步。\n\n选中的区域如下：\n' +
+				'请针对我选中的 focus 区域进行 Review，分析我的任务完成情况、潜在问题，以及最合理的下一步。\n\n选中的区域如下：\n' +
 				regionLines
 		};
 	}
