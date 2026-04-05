@@ -13,7 +13,7 @@ suite('createReadFileTool', () => {
 
 		try {
 			const tool = createReadFileTool(() => workspaceRoot);
-			const result = await tool.invoke('{"path":"src/demo.ts","startLine":2,"endLine":3}');
+			const result = await tool.func('{"path":"src/demo.ts","startLine":2,"endLine":3}');
 			const payload = JSON.parse(result) as {
 				error?: string;
 				path: string;
@@ -42,7 +42,7 @@ suite('createReadFileTool', () => {
 
 		try {
 			const tool = createReadFileTool(() => workspaceRoot);
-			const result = await tool.invoke('../outside.txt');
+			const result = await tool.func('../outside.txt');
 			const payload = JSON.parse(result) as { error?: string };
 
 			assert.strictEqual(payload.error, 'Path is outside the workspace.');

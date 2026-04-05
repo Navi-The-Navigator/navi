@@ -44,7 +44,7 @@
           "default": 60,
           "minimum": 10,
           "maximum": 200,
-          "description": "Max LangGraph reasoning/tool steps per request. Increase if the agent hits recursion limit."
+          "description": "Max agent reasoning/tool steps per request. Increase if the agent hits recursion limit."
         },
         "navi.mcpEnabled": {
           "type": "boolean",
@@ -126,10 +126,7 @@
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "@langchain/core": "^1.1.38",
-    "@langchain/langgraph": "^1.2.6",
-    "@langchain/mcp-adapters": "^1.1.3",
-    "@langchain/openai": "^1.4.1",
+    "@github/copilot-sdk": "^0.2.1",
     "dompurify": "^3.3.3",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.1",

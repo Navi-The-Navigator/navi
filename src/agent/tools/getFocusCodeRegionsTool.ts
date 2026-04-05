@@ -1,7 +1,7 @@
 import * as path from 'path';
-import { DynamicTool } from '@langchain/core/tools';
 import * as vscode from 'vscode';
 import type { ChatFocusTarget } from '../../types/chat';
+import type { NaviTool } from '../naviTool';
 
 export type GetFocusCodeRegionsInput = {
 	path?: string;
@@ -18,13 +18,13 @@ type GetFocusCodeRegionsDeps = {
 	resolveWorkspaceRoot?: () => string | undefined;
 };
 
-export function createGetFocusCodeRegionsTool(deps: GetFocusCodeRegionsDeps): DynamicTool {
+export function createGetFocusCodeRegionsTool(deps: GetFocusCodeRegionsDeps): NaviTool {
 	const resolveWorkspaceRoot = deps.resolveWorkspaceRoot ?? getWorkspaceRoot;
-	return new DynamicTool({
+	return {
 		name: 'get_focus_code_regions',
 		description:
 			'List all current focus highlight regions in the active session. Optional input path filters to one file. Input JSON: {} or {"path":"src/file.ts"}. Use this tool before switching/clearing highlights when you need ids and current ordering.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const workspaceRoot = resolveWorkspaceRoot();
 			if (!workspaceRoot) {
 				return errorResult('No workspace folder is open.');
@@ -60,7 +60,7 @@ export function createGetFocusCodeRegionsTool(deps: GetFocusCodeRegionsDeps): Dy
 				2
 			);
 		}
-	});
+	};
 }
 
 function getWorkspaceRoot(): string | undefined {

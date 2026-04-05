@@ -13,7 +13,7 @@ suite('createSearchFileContentTool', () => {
 
 		try {
 			const tool = createSearchFileContentTool(() => workspaceRoot);
-			const result = await tool.invoke('{"query":"ping","path":"src"}');
+			const result = await tool.func('{"query":"ping","path":"src"}');
 			const payload = JSON.parse(result) as {
 				error?: string;
 				count: number;

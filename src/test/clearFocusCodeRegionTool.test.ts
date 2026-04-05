@@ -17,7 +17,7 @@ suite('createClearFocusCodeRegionTool', () => {
 		});
 
 		try {
-			const result = await tool.invoke('{}');
+			const result = await tool.func('{}');
 			const payload = JSON.parse(result) as { ok: boolean; error?: string };
 			assert.strictEqual(payload.ok, false);
 			assert.strictEqual(payload.error, 'Provide id or path, or set clearAll=true.');
@@ -54,7 +54,7 @@ suite('createClearFocusCodeRegionTool', () => {
 		});
 
 		try {
-			const result = await tool.invoke('{"path":"src\\\\demo.ts","startLine":1,"endLine":10}');
+			const result = await tool.func('{"path":"src\\\\demo.ts","startLine":1,"endLine":10}');
 			const payload = JSON.parse(result) as {
 				ok: boolean;
 				sessionId: string;

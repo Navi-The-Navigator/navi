@@ -13,7 +13,7 @@ suite('createProjectStructureTool', () => {
 
 		try {
 			const tool = createProjectStructureTool(() => workspaceRoot);
-			const result = await tool.invoke('{"maxDepth":3}');
+			const result = await tool.func('{"maxDepth":3}');
 			const payload = JSON.parse(result) as {
 				error?: string;
 				tree: string;
@@ -39,7 +39,7 @@ suite('createProjectStructureTool', () => {
 
 		try {
 			const tool = createProjectStructureTool(() => workspaceRoot);
-			const result = await tool.invoke('{"path":"../"}');
+			const result = await tool.func('{"path":"../"}');
 			const payload = JSON.parse(result) as { error?: string };
 
 			assert.strictEqual(payload.error, 'Path is outside the workspace.');

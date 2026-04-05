@@ -1,7 +1,7 @@
 import * as path from 'path';
-import { DynamicTool } from '@langchain/core/tools';
 import * as vscode from 'vscode';
 import type { ChatFocusTarget } from '../../types/chat';
+import type { NaviTool } from '../naviTool';
 
 export type FocusCodeRegionInput = {
 	path?: string;
@@ -17,13 +17,13 @@ type FocusCodeRegionDeps = {
 	resolveWorkspaceRoot?: () => string | undefined;
 };
 
-export function createFocusCodeRegionTool(deps: FocusCodeRegionDeps): DynamicTool {
+export function createFocusCodeRegionTool(deps: FocusCodeRegionDeps): NaviTool {
 	const resolveWorkspaceRoot = deps.resolveWorkspaceRoot ?? getWorkspaceRoot;
-	return new DynamicTool({
+	return {
 		name: 'focus_user_code_region',
 		description:
 			'Reveal and highlight where the user should write code next. Use this when assigning coding steps. Input JSON: {"path":"src/file.ts","startLine":10,"endLine":18,"title":"Next coding task","instruction":"Implement the logic here"}.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const workspaceRoot = resolveWorkspaceRoot();
 			if (!workspaceRoot) {
 				return errorResult('No workspace folder is open.');
@@ -64,7 +64,7 @@ export function createFocusCodeRegionTool(deps: FocusCodeRegionDeps): DynamicToo
 				2
 			);
 		}
-	});
+	};
 }
 
 function getWorkspaceRoot(): string | undefined {

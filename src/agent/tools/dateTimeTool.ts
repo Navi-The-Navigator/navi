@@ -1,12 +1,12 @@
-import { DynamicTool } from '@langchain/core/tools';
+import type { NaviTool } from '../naviTool';
 
 const USER_TIMEZONE = 'Asia/Shanghai';
 
-export function createDateTimeTool(): DynamicTool {
-	return new DynamicTool({
+export function createDateTimeTool(): NaviTool {
+	return {
 		name: 'get_date_time',
 		description: `Get current date and time in ${USER_TIMEZONE}.`,
-		func: async () => {
+		func: async (_rawInput: string) => {
 			const now = new Date();
 			const formatted = new Intl.DateTimeFormat('zh-CN', {
 				timeZone: USER_TIMEZONE,
@@ -29,5 +29,5 @@ export function createDateTimeTool(): DynamicTool {
 				2
 			);
 		}
-	});
+	};
 }

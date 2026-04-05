@@ -20,8 +20,13 @@ const extensionConfig = {
     libraryTarget: 'commonjs2'
   },
   externals: {
-    vscode: 'commonjs vscode' // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
+    vscode: 'commonjs vscode', // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
     // modules added here also need to be added in the .vscodeignore file
+    '@github/copilot-sdk': 'commonjs @github/copilot-sdk',
+    '@github/copilot': 'commonjs @github/copilot',
+    'vscode-jsonrpc': 'commonjs vscode-jsonrpc',
+    'vscode-jsonrpc/node': 'commonjs vscode-jsonrpc/node',
+    'zod': 'commonjs zod',
   },
   resolve: {
     // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader

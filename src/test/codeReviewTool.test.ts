@@ -21,7 +21,7 @@ suite('createCodeReviewTool', () => {
 			}
 		);
 
-		const result = await tool.invoke(
+		const result = await tool.func(
 			JSON.stringify({
 				request: 'review auth flow',
 				paths: ['src/auth.ts', '  src/token.ts  '],
@@ -69,7 +69,7 @@ suite('createCodeReviewTool', () => {
 			async () => '结论: 部分完成\n概述: 主流程已接上，但测试和边界条件还缺失。'
 		);
 
-		const result = await tool.invoke('review current diff');
+		const result = await tool.func('review current diff');
 		const payload = JSON.parse(result) as { review: string; detailInSubpanel?: boolean };
 
 		assert.strictEqual(payload.detailInSubpanel, true);
@@ -82,7 +82,7 @@ suite('createCodeReviewTool', () => {
 			async () => '结论: 已完成\n概述: 目标功能和相关测试都已经补齐。'
 		);
 
-		const result = await tool.invoke('review current diff');
+		const result = await tool.func('review current diff');
 		const payload = JSON.parse(result) as { review: string };
 
 		assert.strictEqual(payload.review, '任务评估已完成，当前实现基本覆盖目标；详细结果见独立面板。');
@@ -94,7 +94,7 @@ suite('createCodeReviewTool', () => {
 			async () => '结论: 未完成\n概述: 目前只完成了数据层，UI 和命令接线还没做。'
 		);
 
-		const result = await tool.invoke('review current diff');
+		const result = await tool.func('review current diff');
 		const payload = JSON.parse(result) as { review: string };
 
 		assert.strictEqual(payload.review, '任务评估已完成，当前任务尚未完成；详细结果见独立面板。');
@@ -106,7 +106,7 @@ suite('createCodeReviewTool', () => {
 			async () => '结论: 无法判断\n概述: 缺少关键调用链证据，当前无法确认是否真正生效。'
 		);
 
-		const result = await tool.invoke('review current diff');
+		const result = await tool.func('review current diff');
 		const payload = JSON.parse(result) as { review: string };
 
 		assert.strictEqual(payload.review, '任务评估已完成，但现有证据不足以下结论；详细结果见独立面板。');
@@ -114,7 +114,7 @@ suite('createCodeReviewTool', () => {
 
 	test('rejects missing request', async () => {
 		const tool = createCodeReviewTool(() => 'E:/workspace', async () => 'unused');
-		const result = await tool.invoke('{"paths":["src/app.ts"]}');
+		const result = await tool.func('{"paths":["src/app.ts"]}');
 		const payload = JSON.parse(result) as { error?: string };
 
 		assert.strictEqual(payload.error, 'Missing required field: request.');
@@ -139,7 +139,7 @@ suite('createCodeReviewTool', () => {
 			trace
 		);
 
-		await tool.invoke('review current diff');
+		await tool.func('review current diff');
 
 		assert.strictEqual(capturedTrace, trace);
 		assert.strictEqual(capturedStartPayload, 'run-1');
@@ -147,7 +147,7 @@ suite('createCodeReviewTool', () => {
 
 	test('rejects when no workspace is open', async () => {
 		const tool = createCodeReviewTool(() => undefined, async () => 'unused');
-		const result = await tool.invoke('review current diff');
+		const result = await tool.func('review current diff');
 		const payload = JSON.parse(result) as { error?: string };
 
 		assert.strictEqual(payload.error, 'No workspace folder is open.');

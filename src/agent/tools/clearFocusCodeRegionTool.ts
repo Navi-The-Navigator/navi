@@ -1,7 +1,7 @@
 import * as path from 'path';
-import { DynamicTool } from '@langchain/core/tools';
 import * as vscode from 'vscode';
 import type { ChatFocusTarget } from '../../types/chat';
+import type { NaviTool } from '../naviTool';
 
 export type ClearFocusCodeRegionInput = {
 	id?: string;
@@ -23,13 +23,13 @@ type ClearFocusCodeRegionDeps = {
 	resolveWorkspaceRoot?: () => string | undefined;
 };
 
-export function createClearFocusCodeRegionTool(deps: ClearFocusCodeRegionDeps): DynamicTool {
+export function createClearFocusCodeRegionTool(deps: ClearFocusCodeRegionDeps): NaviTool {
 	const resolveWorkspaceRoot = deps.resolveWorkspaceRoot ?? getWorkspaceRoot;
-	return new DynamicTool({
+	return {
 		name: 'clear_focus_code_region',
 		description:
 			'Clear highlight regions previously created by focus_user_code_region. Use when a focused task is completed, obsolete, or incorrect. Supports clearing by id (preferred), or by path with optional line range. Set clearAll=true to remove all regions in current session. Input JSON: {"id":"focus-..."} or {"path":"src/file.ts","startLine":20,"endLine":40} or {"clearAll":true}.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const workspaceRoot = resolveWorkspaceRoot();
 			if (!workspaceRoot) {
 				return errorResult('No workspace folder is open.');
@@ -67,7 +67,7 @@ export function createClearFocusCodeRegionTool(deps: ClearFocusCodeRegionDeps): 
 				2
 			);
 		}
-	});
+	};
 }
 
 function getWorkspaceRoot(): string | undefined {

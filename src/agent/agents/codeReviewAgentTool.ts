@@ -1,9 +1,8 @@
-import { HumanMessage, type MessageContent } from '@langchain/core/messages';
-import { DynamicTool } from '@langchain/core/tools';
-import { createReactAgent } from '@langchain/langgraph/prebuilt';
 import * as vscode from 'vscode';
-import { extractMessageText } from '../../utils/message';
-import { createDeepSeekChatModel, resolveRecursionLimit } from '../modelFactory';
+import { CopilotClient, CopilotSession, approveAll } from '@github/copilot-sdk';
+import type { Tool, SessionEvent } from '@github/copilot-sdk';
+import { createCopilotClient, resolveModel, resolveProvider } from '../modelFactory';
+import type { NaviTool } from '../naviTool';
 import { createProjectStructureTool } from '../tools/projectStructureTool';
 import { createReadFileTool } from '../tools/readFileTool';
 import { createSearchFileContentTool } from '../tools/searchFileContentTool';
@@ -44,12 +43,12 @@ export function createCodeReviewTool(
 	resolveWorkspaceRoot: WorkspaceRootResolver = getWorkspaceRoot,
 	runReview: CodeReviewRunner = runCodeReview,
 	trace?: SubagentTraceCallbacks
-): DynamicTool {
-	return new DynamicTool({
+): NaviTool {
+	return {
 		name: 'code_review_agent',
 		description:
 			'Delegate a request to an independent read-only task assessment agent. Use this when the user wants to evaluate whether a coding task is actually finished, what evidence supports that, and what gaps or risks remain. Input can be plain text, or JSON like {"request":"check whether auth flow work is complete","paths":["src/auth.ts"],"focusRegions":[{"path":"src/auth.ts","startLine":10,"endLine":40,"title":"validate token"}]}. Returns JSON with a concise assessment summary for the caller; detailed assessment text is rendered in the dedicated subpanel.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const workspaceRoot = resolveWorkspaceRoot();
 			if (!workspaceRoot) {
 				return errorResult('No workspace folder is open.');
@@ -86,7 +85,7 @@ export function createCodeReviewTool(
 				2
 			);
 		}
-	});
+	};
 }
 
 function getWorkspaceRoot(): string | undefined {
@@ -227,69 +226,119 @@ async function runCodeReview(input: CodeReviewRunnerInput): Promise<string> {
 			focusRegions: input.focusRegions
 		}
 	});
-	const agent = createReactAgent({
-		llm: createDeepSeekChatModel(config, { temperature: 0.1 }),
-		tools: [
-			createProjectStructureTool(() => input.workspaceRoot),
-			createReadFileTool(() => input.workspaceRoot),
-			createSearchFilesTool(() => input.workspaceRoot),
-			createSearchFileContentTool(() => input.workspaceRoot),
-			createGetWorkspaceErrorsTool(() => input.workspaceRoot),
-			createUpdateProgressTool({
-				onProgress: async (text) => {
-					if (!runId || !input.trace?.onProgress) {
-						return;
-					}
-					await input.trace.onProgress(runId, text);
+
+	const naviTools: NaviTool[] = [
+		createProjectStructureTool(() => input.workspaceRoot),
+		createReadFileTool(() => input.workspaceRoot),
+		createSearchFilesTool(() => input.workspaceRoot),
+		createSearchFileContentTool(() => input.workspaceRoot),
+		createGetWorkspaceErrorsTool(() => input.workspaceRoot),
+		createUpdateProgressTool({
+			onProgress: async (text) => {
+				if (!runId || !input.trace?.onProgress) {
+					return;
 				}
-			})
-		],
-		prompt: CODE_REVIEW_AGENT_SYSTEM_PROMPT
-	});
+				await input.trace.onProgress(runId, text);
+			}
+		})
+	];
+
+	const sdkTools: Tool[] = naviTools.map((tool) => ({
+		name: tool.name,
+		description: tool.description,
+		parameters: {
+			type: 'object',
+			properties: {
+				input: { type: 'string', description: 'Raw input string (JSON or plain text)' }
+			},
+			required: ['input']
+		},
+		handler: async (args: unknown) => {
+			const rawInput = typeof args === 'object' && args !== null && 'input' in args
+				? String((args as { input: unknown }).input)
+				: typeof args === 'string'
+					? args
+					: JSON.stringify(args);
+			return await tool.func(rawInput);
+		},
+		skipPermission: true
+	}));
+
+	const client = createCopilotClient();
 
 	try {
+		await client.start();
+		const session = await client.createSession({
+			model: resolveModel(config),
+			tools: sdkTools,
+			provider: resolveProvider(config),
+			onPermissionRequest: approveAll,
+			systemMessage: {
+				mode: 'replace',
+				content: CODE_REVIEW_AGENT_SYSTEM_PROMPT
+			}
+		});
+
 		let reviewText = '';
-		const stream = await agent.streamEvents(
-			{
-				messages: [new HumanMessage(input.prompt)]
-			},
-			{
-				version: 'v2',
-				recursionLimit: resolveRecursionLimit(config),
-				signal: input.trace?.getAbortSignal?.()
-			}
-		);
 
-		for await (const chunk of stream) {
-			if (chunk.event === 'on_tool_start') {
-				if (runId && input.trace?.onToolStart) {
-					await input.trace.onToolStart(runId, chunk.name ?? 'unknown_tool');
+		const idlePromise = new Promise<void>((resolve, reject) => {
+			const abortSignal = input.trace?.getAbortSignal?.();
+			const unsubscribe = session.on((event: SessionEvent) => {
+				switch (event.type) {
+					case 'assistant.message_delta': {
+						const delta = event.data.deltaContent;
+						if (delta) {
+							reviewText += delta;
+							if (runId && input.trace?.onAssistantDelta) {
+								void Promise.resolve(input.trace.onAssistantDelta(runId, delta)).catch(() => {});
+							}
+						}
+						break;
+					}
+					case 'tool.execution_start': {
+						const toolName = event.data.toolName ?? 'unknown_tool';
+						if (runId && input.trace?.onToolStart) {
+							void Promise.resolve(input.trace.onToolStart(runId, toolName)).catch(() => {});
+						}
+						break;
+					}
+					case 'tool.execution_complete': {
+						if (runId && input.trace?.onToolEnd) {
+							void Promise.resolve(input.trace.onToolEnd(runId)).catch(() => {});
+						}
+						break;
+					}
+					case 'session.idle':
+						unsubscribe();
+						resolve();
+						break;
+					case 'session.error':
+						unsubscribe();
+						reject(new Error((event.data as { message?: string }).message ?? 'Session error'));
+						break;
+					default:
+						break;
 				}
-				continue;
-			}
+			});
 
-			if (chunk.event === 'on_tool_end') {
-				if (runId && input.trace?.onToolEnd) {
-					await input.trace.onToolEnd(runId, chunk.name);
+			if (abortSignal) {
+				const onAbort = () => {
+					unsubscribe();
+					session.abort().catch(() => {});
+					reject(new Error('Review aborted'));
+				};
+				if (abortSignal.aborted) {
+					onAbort();
+					return;
 				}
-				continue;
+				abortSignal.addEventListener('abort', onAbort, { once: true });
 			}
+		});
 
-			if (chunk.event !== 'on_chat_model_stream') {
-				continue;
-			}
+		await session.send({ prompt: input.prompt });
+		await idlePromise;
 
-			const modelChunk = chunk.data?.chunk;
-			const delta = extractMessageText(modelChunk?.content as MessageContent | undefined);
-			if (!delta) {
-				continue;
-			}
-
-			reviewText += delta;
-			if (runId && input.trace?.onAssistantDelta) {
-				await input.trace.onAssistantDelta(runId, delta);
-			}
-		}
+		await session.disconnect();
 
 		const finalReview = reviewText.trim() || '结论: 无法判断\n概述: 任务评估 agent 没有生成最终文本，当前无法确认任务完成度。\n已完成的证据:\n- 未获取到可用结论。\n待补充或潜在问题:\n- 当前输出为空，无法判断实现状态。\n验证与后续建议:\n- 建议重试一次，并缩小评估范围。';
 		if (runId && input.trace?.onFinish) {
@@ -308,6 +357,8 @@ async function runCodeReview(input: CodeReviewRunnerInput): Promise<string> {
 			});
 		}
 		throw error;
+	} finally {
+		await client.stop().catch(() => {});
 	}
 }
 

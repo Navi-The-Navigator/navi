@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Connection } from '@langchain/mcp-adapters';
+import type { MCPServerConfig } from '@github/copilot-sdk';
 
 export type McpServerEntry = Record<string, unknown> & {
 	enabled?: boolean;
@@ -41,15 +41,15 @@ export async function writeMcpServerSettings(
 	await config.update('mcpServersJson', payload, vscode.ConfigurationTarget.Global);
 }
 
-export function toEnabledMcpConnections(servers: McpServerSettings): Record<string, Connection> {
-	const result: Record<string, Connection> = {};
+export function toEnabledMcpConnections(servers: McpServerSettings): Record<string, MCPServerConfig> {
+	const result: Record<string, MCPServerConfig> = {};
 	for (const [serverName, entry] of Object.entries(servers)) {
 		if (entry.enabled === false) {
 			continue;
 		}
 
 		const { enabled: _enabled, ...connection } = entry;
-		result[serverName] = connection as Connection;
+		result[serverName] = connection as unknown as MCPServerConfig;
 	}
 
 	return result;

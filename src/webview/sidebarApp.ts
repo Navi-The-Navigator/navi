@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
-import MarkdownIt = require('markdown-it');
+import MarkdownIt from 'markdown-it';
 
 type ChatRole = 'user' | 'assistant';
 

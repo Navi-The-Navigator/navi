@@ -1,14 +1,11 @@
 import * as vscode from 'vscode';
-import { HumanMessage, type MessageContent } from '@langchain/core/messages';
-import { type DynamicTool, type StructuredToolInterface } from '@langchain/core/tools';
-import { createReactAgent } from '@langchain/langgraph/prebuilt';
-import { MemorySaver } from '@langchain/langgraph';
-import { MultiServerMCPClient } from '@langchain/mcp-adapters';
+import { CopilotClient, CopilotSession, approveAll } from '@github/copilot-sdk';
+import type { Tool, MCPServerConfig, SessionEvent } from '@github/copilot-sdk';
 import { SYSTEM_PROMPT } from './config';
-import { createDeepSeekChatModel, resolveRecursionLimit } from './modelFactory';
+import { createCopilotClient, resolveModel, resolveProvider } from './modelFactory';
+import type { NaviTool } from './naviTool';
 import { parseMcpServerSettings, toEnabledMcpConnections } from '../mcp/config';
 import type { RenderableMessage } from '../types/chat';
-import { extractMessageText, getMessageType } from '../utils/message';
 const DEFAULT_STREAM_RETRY_LIMIT = 1;
 
 type StreamCallbacks = {
@@ -19,74 +16,47 @@ type StreamCallbacks = {
 	abortSignal?: AbortSignal;
 };
 
-export class DeepSeekChatGateway {
-	private agent?: ReturnType<typeof createReactAgent>;
-	private agentInitPromise?: Promise<ReturnType<typeof createReactAgent>>;
-	private mcpClient?: MultiServerMCPClient;
-	private readonly checkpointer = new MemorySaver();
+/** A stored message used for session history replay. */
+type StoredMessage = {
+	role: 'user' | 'assistant';
+	text: string;
+};
 
-	constructor(private readonly tools: DynamicTool[]) {}
+export class DeepSeekChatGateway {
+	private client?: CopilotClient;
+	private sessionMap = new Map<string, CopilotSession>();
+	private clientInitPromise?: Promise<CopilotClient>;
+	/** In-memory conversation history keyed by session-id. */
+	private readonly messageHistory = new Map<string, StoredMessage[]>();
+
+	constructor(private readonly tools: NaviTool[]) {}
 
 	public async streamAssistantReply(sessionId: string, prompt: string, callbacks: StreamCallbacks = {}): Promise<string> {
 		let assistantText = '';
 		for (let attempt = 0; attempt <= DEFAULT_STREAM_RETRY_LIMIT; attempt += 1) {
 			try {
 				this.ensureNotCancelled(callbacks);
-				const agent = await this.getOrCreateAgent();
-				const recursionLimit = resolveRecursionLimit(vscode.workspace.getConfiguration('navi'));
-				const stream = await agent.streamEvents(
-					{
-						messages: [new HumanMessage(prompt)]
-					},
-					{
-						version: 'v2',
-						recursionLimit,
-						signal: callbacks.abortSignal,
-						configurable: {
-							thread_id: sessionId
-						}
-					}
-				);
+				const session = await this.getOrCreateSession(sessionId);
 
-				for await (const chunk of stream) {
-					this.ensureNotCancelled(callbacks);
-					if (chunk.event === 'on_tool_start') {
-						const toolName = chunk.name ?? 'unknown_tool';
-						if (callbacks.onToolStart) {
-							await callbacks.onToolStart(toolName);
-						}
-						continue;
-					}
+				this.appendToHistory(sessionId, 'user', prompt);
 
-					if (chunk.event === 'on_tool_end') {
-						if (callbacks.onToolEnd) {
-							await callbacks.onToolEnd();
-						}
-						continue;
-					}
+				assistantText = '';
 
-					if (chunk.event !== 'on_chat_model_stream') {
-						continue;
-					}
-
-					const modelChunk = chunk.data?.chunk;
-					const delta = extractMessageText(modelChunk?.content as MessageContent | undefined);
-					if (!delta) {
-						continue;
-					}
-
+				const idlePromise = this.waitForIdle(session, callbacks, (delta) => {
 					assistantText += delta;
-					if (callbacks.onAssistantDelta) {
-						await callbacks.onAssistantDelta(delta);
-					}
-				}
+				});
+
+				await session.send({ prompt });
+				await idlePromise;
+
+				this.appendToHistory(sessionId, 'assistant', assistantText);
 				return assistantText;
 			} catch (error) {
 				if (callbacks.shouldCancel?.() || callbacks.abortSignal?.aborted) {
 					throw this.normalizeStreamError(new Error('__NAVI_CANCELLED__'));
 				}
 				if (this.shouldRetryStreamError(error) && attempt < DEFAULT_STREAM_RETRY_LIMIT && !assistantText.trim()) {
-					await this.resetAgentForRetry();
+					await this.resetForRetry(sessionId);
 					continue;
 				}
 				throw this.normalizeStreamError(error);
@@ -97,94 +67,224 @@ export class DeepSeekChatGateway {
 	}
 
 	public async loadSessionMessages(sessionId: string): Promise<RenderableMessage[]> {
-		if (!this.agent) {
+		const history = this.messageHistory.get(sessionId);
+		if (!history) {
 			return [];
 		}
 
-		const state = await this.agent.getState({
-			configurable: {
-				thread_id: sessionId
-			}
-		});
-
-		const values = state.values as { messages?: unknown } | undefined;
-		const messages = values?.messages;
-		if (!Array.isArray(messages)) {
-			return [];
-		}
-
-		return messages
-			.map((message) => {
-				const type = getMessageType(message);
-				if (type !== 'human' && type !== 'ai') {
-					return undefined;
-				}
-
-				const text = extractMessageText((message as { content?: MessageContent }).content).trim();
-				if (!text) {
-					return undefined;
-				}
-
-				return {
-					role: type === 'human' ? 'user' : 'assistant',
-					text
-				} as RenderableMessage;
-			})
-			.filter((item): item is RenderableMessage => item !== undefined);
+		return history
+			.filter((msg) => msg.text.trim())
+			.map((msg) => ({
+				role: msg.role,
+				text: msg.text
+			}));
 	}
 
 	public async dispose(): Promise<void> {
-		await this.disposeMcpClient();
+		for (const session of this.sessionMap.values()) {
+			try {
+				await session.disconnect();
+			} catch {
+				// best-effort
+			}
+		}
+		this.sessionMap.clear();
+
+		if (this.client) {
+			try {
+				await this.client.stop();
+			} catch {
+				// best-effort
+			}
+			this.client = undefined;
+		}
 	}
 
 	public async invalidateAgent(): Promise<void> {
-		this.agent = undefined;
-		this.agentInitPromise = undefined;
-		await this.disposeMcpClient();
+		for (const session of this.sessionMap.values()) {
+			try {
+				await session.disconnect();
+			} catch {
+				// best-effort
+			}
+		}
+		this.sessionMap.clear();
+
+		if (this.client) {
+			try {
+				await this.client.stop();
+			} catch {
+				// best-effort
+			}
+			this.client = undefined;
+			this.clientInitPromise = undefined;
+		}
 	}
 
-	private async getOrCreateAgent(): Promise<ReturnType<typeof createReactAgent>> {
-		if (this.agent) {
-			return this.agent;
+	// ------------------------------------------------------------------
+	// Private helpers
+	// ------------------------------------------------------------------
+
+	private async getOrCreateClient(): Promise<CopilotClient> {
+		if (this.client) {
+			return this.client;
+		}
+		if (this.clientInitPromise) {
+			return this.clientInitPromise;
 		}
 
-		if (this.agentInitPromise) {
-			return this.agentInitPromise;
-		}
-
-		this.agentInitPromise = this.createAgent();
+		this.clientInitPromise = this.initClient();
 		try {
-			this.agent = await this.agentInitPromise;
-			return this.agent;
+			this.client = await this.clientInitPromise;
+			return this.client;
 		} finally {
-			this.agentInitPromise = undefined;
+			this.clientInitPromise = undefined;
 		}
 	}
 
-	private async createAgent(): Promise<ReturnType<typeof createReactAgent>> {
-		const config = vscode.workspace.getConfiguration('navi');
-		const chatModel = createDeepSeekChatModel(config);
+	private async initClient(): Promise<CopilotClient> {
+		const client = createCopilotClient();
+		await client.start();
+		return client;
+	}
 
-		const tools = [...this.tools, ...(await this.loadMcpTools(config))];
-		return createReactAgent({
-			llm: chatModel,
-			tools,
-			prompt: SYSTEM_PROMPT,
-			checkpointer: this.checkpointer
+	private async getOrCreateSession(sessionId: string): Promise<CopilotSession> {
+		const existing = this.sessionMap.get(sessionId);
+		if (existing) {
+			return existing;
+		}
+
+		const client = await this.getOrCreateClient();
+		const config = vscode.workspace.getConfiguration('navi');
+		const model = resolveModel(config);
+		const provider = resolveProvider(config);
+		const mcpServers = this.resolveMcpServers(config);
+
+		const sdkTools = this.convertTools(this.tools);
+
+		const session = await client.createSession({
+			sessionId,
+			model,
+			tools: sdkTools,
+			mcpServers,
+			provider,
+			onPermissionRequest: approveAll,
+			systemMessage: {
+				mode: 'replace',
+				content: SYSTEM_PROMPT
+			}
+		});
+
+		this.sessionMap.set(sessionId, session);
+		return session;
+	}
+
+	/**
+	 * Register event listeners and wait until the session is idle.
+	 * Returns a promise that resolves when `session.idle` fires.
+	 */
+	private waitForIdle(
+		session: CopilotSession,
+		callbacks: StreamCallbacks,
+		onDelta: (delta: string) => void
+	): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			const unsubscribe = session.on((event: SessionEvent) => {
+				try {
+					this.ensureNotCancelled(callbacks);
+				} catch (err) {
+					unsubscribe();
+					reject(err);
+					return;
+				}
+
+				switch (event.type) {
+					case 'assistant.message_delta': {
+						const delta = event.data.deltaContent;
+						if (delta) {
+							onDelta(delta);
+							if (callbacks.onAssistantDelta) {
+								callbacks.onAssistantDelta(delta).catch(() => {});
+							}
+						}
+						break;
+					}
+					case 'tool.execution_start': {
+						const toolName = event.data.toolName ?? 'unknown_tool';
+						if (callbacks.onToolStart) {
+							callbacks.onToolStart(toolName).catch(() => {});
+						}
+						break;
+					}
+					case 'tool.execution_complete': {
+						if (callbacks.onToolEnd) {
+							callbacks.onToolEnd().catch(() => {});
+						}
+						break;
+					}
+					case 'session.idle':
+						unsubscribe();
+						resolve();
+						break;
+					case 'session.error':
+						unsubscribe();
+						reject(new Error((event.data as { message?: string }).message ?? 'Session error'));
+						break;
+					default:
+						break;
+				}
+			});
+
+			// Handle abort signals
+			if (callbacks.abortSignal) {
+				const onAbort = () => {
+					unsubscribe();
+					session.abort().catch(() => {});
+					reject(new Error('__NAVI_CANCELLED__'));
+				};
+				if (callbacks.abortSignal.aborted) {
+					onAbort();
+					return;
+				}
+				callbacks.abortSignal.addEventListener('abort', onAbort, { once: true });
+			}
 		});
 	}
 
-	private async loadMcpTools(config: vscode.WorkspaceConfiguration): Promise<StructuredToolInterface[]> {
+	/** Convert NaviTool[] → SDK Tool[] */
+	private convertTools(naviTools: NaviTool[]): Tool[] {
+		return naviTools.map((tool) => ({
+			name: tool.name,
+			description: tool.description,
+			parameters: {
+				type: 'object',
+				properties: {
+					input: { type: 'string', description: 'Raw input string (JSON or plain text)' }
+				},
+				required: ['input']
+			},
+			handler: async (args: unknown) => {
+				const rawInput = typeof args === 'object' && args !== null && 'input' in args
+					? String((args as { input: unknown }).input)
+					: typeof args === 'string'
+						? args
+						: JSON.stringify(args);
+				return await tool.func(rawInput);
+			},
+			skipPermission: true
+		}));
+	}
+
+	/** Resolve MCP server configuration from workspace settings. */
+	private resolveMcpServers(config: vscode.WorkspaceConfiguration): Record<string, MCPServerConfig> | undefined {
 		const mcpEnabled = config.get<boolean>('mcpEnabled', false);
 		if (!mcpEnabled) {
-			return [];
+			return undefined;
 		}
 
 		const mcpServersJson = (process.env.NAVI_MCP_SERVERS_JSON ?? config.get<string>('mcpServersJson') ?? '').trim();
 		if (!mcpServersJson) {
-			throw new Error(
-				'MCP 已启用，但未找到服务配置。请设置环境变量 NAVI_MCP_SERVERS_JSON 或在 Settings 中配置 navi.mcpServersJson。'
-			);
+			return undefined;
 		}
 
 		let parsedServers;
@@ -199,30 +299,31 @@ export class DeepSeekChatGateway {
 
 		const normalizedServers = toEnabledMcpConnections(parsedServers);
 		if (Object.keys(normalizedServers).length === 0) {
-			return [];
+			return undefined;
 		}
 
-		this.mcpClient = new MultiServerMCPClient({
-			mcpServers: normalizedServers,
-			onConnectionError: 'ignore',
-			prefixToolNameWithServerName: true,
-			useStandardContentBlocks: true
-		});
-
-		return await this.mcpClient.getTools();
+		return normalizedServers;
 	}
 
-	private async resetAgentForRetry(): Promise<void> {
-		await this.invalidateAgent();
-	}
-
-	private async disposeMcpClient(): Promise<void> {
-		if (!this.mcpClient) {
-			return;
+	private appendToHistory(sessionId: string, role: 'user' | 'assistant', text: string): void {
+		let history = this.messageHistory.get(sessionId);
+		if (!history) {
+			history = [];
+			this.messageHistory.set(sessionId, history);
 		}
+		history.push({ role, text });
+	}
 
-		await this.mcpClient.close();
-		this.mcpClient = undefined;
+	private async resetForRetry(sessionId: string): Promise<void> {
+		const session = this.sessionMap.get(sessionId);
+		if (session) {
+			try {
+				await session.disconnect();
+			} catch {
+				// best-effort
+			}
+			this.sessionMap.delete(sessionId);
+		}
 	}
 
 	private shouldRetryStreamError(error: unknown): boolean {

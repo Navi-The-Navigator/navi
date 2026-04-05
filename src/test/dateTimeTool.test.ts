@@ -4,7 +4,7 @@ import { createDateTimeTool } from '../agent/tools/dateTimeTool';
 suite('createDateTimeTool', () => {
 	test('returns the current time payload in the configured timezone', async () => {
 		const tool = createDateTimeTool();
-		const result = await tool.invoke('');
+		const result = await tool.func('');
 		const payload = JSON.parse(result) as {
 			timezone: string;
 			iso: string;

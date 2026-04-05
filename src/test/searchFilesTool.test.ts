@@ -12,7 +12,7 @@ suite('createSearchFilesTool', () => {
 
 		try {
 			const tool = createSearchFilesTool(() => workspaceRoot);
-			const result = await tool.invoke('socket');
+			const result = await tool.func('socket');
 			const payload = JSON.parse(result) as {
 				error?: string;
 				count: number;
