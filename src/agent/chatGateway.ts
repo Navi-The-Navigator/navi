@@ -1,19 +1,24 @@
 import * as vscode from 'vscode';
 import { CopilotClient, CopilotSession, approveAll } from '@github/copilot-sdk';
-import type { Tool, MCPServerConfig, SessionEvent } from '@github/copilot-sdk';
+import type { Tool, MCPServerConfig, SessionEvent, CustomAgentConfig } from '@github/copilot-sdk';
 import { SYSTEM_PROMPT } from './config';
-import { createCopilotClient, resolveModel, resolveProvider } from './modelFactory';
+import { logAgentFlow, summarizeText } from './debugLogger';
+import { createCopilotClient, resolveModel, resolveProvider, resolveStreaming } from './modelFactory';
 import type { NaviTool } from './naviTool';
 import { parseMcpServerSettings, toEnabledMcpConnections } from '../mcp/config';
 import type { RenderableMessage } from '../types/chat';
 const DEFAULT_STREAM_RETRY_LIMIT = 1;
 
 type StreamCallbacks = {
-	onToolStart?: (toolName: string) => Promise<void>;
-	onToolEnd?: () => Promise<void>;
 	onAssistantDelta?: (delta: string) => Promise<void>;
+	onSessionEvent?: (event: SessionEvent) => Promise<void> | void;
 	shouldCancel?: () => boolean;
 	abortSignal?: AbortSignal;
+};
+
+type ChatGatewayConfig = {
+	tools: NaviTool[];
+	customAgents?: CustomAgentConfig[];
 };
 
 /** A stored message used for session history replay. */
@@ -28,15 +33,30 @@ export class NaviChatGateway {
 	private clientInitPromise?: Promise<CopilotClient>;
 	/** In-memory conversation history keyed by session-id. */
 	private readonly messageHistory = new Map<string, StoredMessage[]>();
+	private readonly tools: NaviTool[];
+	private readonly customAgents?: CustomAgentConfig[];
 
-	constructor(private readonly tools: NaviTool[]) {}
+	constructor(config: ChatGatewayConfig) {
+		this.tools = config.tools;
+		this.customAgents = config.customAgents;
+	}
 
 	public async streamAssistantReply(sessionId: string, prompt: string, callbacks: StreamCallbacks = {}): Promise<string> {
 		let assistantText = '';
 		for (let attempt = 0; attempt <= DEFAULT_STREAM_RETRY_LIMIT; attempt += 1) {
 			try {
+				logAgentFlow('main.gateway', 'streamAssistantReply:start', {
+					sessionId,
+					attempt,
+					promptPreview: summarizeText(prompt),
+					promptLength: prompt.length
+				});
 				this.ensureNotCancelled(callbacks);
 				const session = await this.getOrCreateSession(sessionId);
+				logAgentFlow('main.gateway', 'streamAssistantReply:session_ready', {
+					sessionId,
+					attempt
+				});
 
 				this.appendToHistory(sessionId, 'user', prompt);
 
@@ -46,16 +66,42 @@ export class NaviChatGateway {
 					assistantText += delta;
 				});
 
+				logAgentFlow('main.gateway', 'streamAssistantReply:send_prompt', {
+					sessionId,
+					attempt
+				});
 				await session.send({ prompt });
 				await idlePromise;
+				logAgentFlow('main.gateway', 'streamAssistantReply:idle_reached', {
+					sessionId,
+					attempt,
+					assistantLength: assistantText.length,
+					assistantPreview: summarizeText(assistantText)
+				});
 
 				this.appendToHistory(sessionId, 'assistant', assistantText);
+				logAgentFlow('main.gateway', 'streamAssistantReply:completed', {
+					sessionId,
+					attempt,
+					assistantLength: assistantText.length
+				});
 				return assistantText;
 			} catch (error) {
+				logAgentFlow('main.gateway', 'streamAssistantReply:error', {
+					sessionId,
+					attempt,
+					error
+				});
 				if (callbacks.shouldCancel?.() || callbacks.abortSignal?.aborted) {
 					throw this.normalizeStreamError(new Error('__NAVI_CANCELLED__'));
 				}
 				if (this.shouldRetryStreamError(error) && attempt < DEFAULT_STREAM_RETRY_LIMIT && !assistantText.trim()) {
+					logAgentFlow('main.gateway', 'streamAssistantReply:retrying_after_reset', {
+						sessionId,
+						attempt,
+						error,
+						assistantLength: assistantText.length
+					});
 					await this.resetForRetry(sessionId);
 					continue;
 				}
@@ -63,6 +109,11 @@ export class NaviChatGateway {
 			}
 		}
 
+		logAgentFlow('main.gateway', 'streamAssistantReply:exhausted_attempts', {
+			sessionId,
+			assistantLength: assistantText.length,
+			assistantPreview: summarizeText(assistantText)
+		});
 		return assistantText;
 	}
 
@@ -144,8 +195,10 @@ export class NaviChatGateway {
 
 	private async initClient(): Promise<CopilotClient> {
 		const config = vscode.workspace.getConfiguration('navi');
+		logAgentFlow('main.gateway', 'initClient:start');
 		const client = await createCopilotClient(config);
 		await client.start();
+		logAgentFlow('main.gateway', 'initClient:ready');
 		return client;
 	}
 
@@ -158,16 +211,33 @@ export class NaviChatGateway {
 		const client = await this.getOrCreateClient();
 		const config = vscode.workspace.getConfiguration('navi');
 		const model = resolveModel(config);
+		const streaming = resolveStreaming(config);
 		const provider = resolveProvider(config);
 		const mcpServers = this.resolveMcpServers(config);
 
 		const sdkTools = this.convertTools(this.tools);
+		const mcpServerNames = Object.keys(mcpServers ?? {});
+		const customAgentNames = (this.customAgents ?? []).map((agent) => agent.name);
+		logAgentFlow('main.gateway', 'createSession:config_prepared', {
+			sessionId,
+			model,
+			streaming,
+			providerType: provider?.type,
+			toolCount: sdkTools.length,
+			toolNames: sdkTools.map((tool) => tool.name),
+			mcpServerCount: mcpServerNames.length,
+			mcpServers: mcpServerNames,
+			customAgentCount: customAgentNames.length,
+			customAgents: customAgentNames
+		});
 
 		const sessionConfig: Parameters<CopilotClient['createSession']>[0] = {
 			sessionId,
 			model,
+			streaming,
 			tools: sdkTools,
 			mcpServers,
+			customAgents: this.customAgents,
 			onPermissionRequest: approveAll,
 			systemMessage: {
 				mode: 'replace',
@@ -180,6 +250,13 @@ export class NaviChatGateway {
 		}
 
 		const session = await client.createSession(sessionConfig);
+		logAgentFlow('main.gateway', 'createSession:created', {
+			sessionId,
+			model,
+			streaming,
+			providerType: provider?.type,
+			customAgents: customAgentNames
+		});
 
 		this.sessionMap.set(sessionId, session);
 		return session;
@@ -195,10 +272,19 @@ export class NaviChatGateway {
 		onDelta: (delta: string) => void
 	): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
+			let hasDelta = false;
+			let hasAppliedAssistantMessageFallback = false;
 			const unsubscribe = session.on((event: SessionEvent) => {
+				this.logSessionEvent(event);
+				if (callbacks.onSessionEvent) {
+					void Promise.resolve(callbacks.onSessionEvent(event)).catch(() => {});
+				}
 				try {
 					this.ensureNotCancelled(callbacks);
 				} catch (err) {
+					logAgentFlow('main.gateway', 'waitForIdle:cancelled_before_handling_event', {
+						error: err
+					});
 					unsubscribe();
 					reject(err);
 					return;
@@ -208,6 +294,7 @@ export class NaviChatGateway {
 					case 'assistant.message_delta': {
 						const delta = event.data.deltaContent;
 						if (delta) {
+							hasDelta = true;
 							onDelta(delta);
 							if (callbacks.onAssistantDelta) {
 								callbacks.onAssistantDelta(delta).catch(() => {});
@@ -215,17 +302,23 @@ export class NaviChatGateway {
 						}
 						break;
 					}
-					case 'tool.execution_start': {
-						const toolName = event.data.toolName ?? 'unknown_tool';
-						if (callbacks.onToolStart) {
-							callbacks.onToolStart(toolName).catch(() => {});
+					case 'assistant.message': {
+						if (hasDelta || hasAppliedAssistantMessageFallback) {
+							break;
 						}
-						break;
-					}
-					case 'tool.execution_complete': {
-						if (callbacks.onToolEnd) {
-							callbacks.onToolEnd().catch(() => {});
+						const messageText = this.extractAssistantMessageText(event.data);
+						if (!messageText) {
+							break;
 						}
+						hasAppliedAssistantMessageFallback = true;
+						onDelta(messageText);
+						if (callbacks.onAssistantDelta) {
+							callbacks.onAssistantDelta(messageText).catch(() => {});
+						}
+						logAgentFlow('main.gateway', 'waitForIdle:assistant_message_fallback_applied', {
+							textLength: messageText.length,
+							textPreview: summarizeText(messageText)
+						});
 						break;
 					}
 					case 'session.idle':
@@ -244,6 +337,7 @@ export class NaviChatGateway {
 			// Handle abort signals
 			if (callbacks.abortSignal) {
 				const onAbort = () => {
+					logAgentFlow('main.gateway', 'waitForIdle:abort_signal_received');
 					unsubscribe();
 					session.abort().catch(() => {});
 					reject(new Error('__NAVI_CANCELLED__'));
@@ -255,6 +349,111 @@ export class NaviChatGateway {
 				callbacks.abortSignal.addEventListener('abort', onAbort, { once: true });
 			}
 		});
+	}
+
+	private logSessionEvent(event: SessionEvent): void {
+		switch (event.type) {
+			case 'assistant.message_delta': {
+				const delta = event.data.deltaContent ?? '';
+				logAgentFlow('main.gateway.event', 'assistant.message_delta', {
+					deltaLength: delta.length,
+					deltaPreview: summarizeText(delta)
+				});
+				break;
+			}
+			case 'assistant.message': {
+				const text = this.extractAssistantMessageText(event.data);
+				logAgentFlow('main.gateway.event', 'assistant.message', {
+					extractedLength: text.length,
+					extractedPreview: summarizeText(text)
+				});
+				break;
+			}
+			case 'tool.execution_start':
+				logAgentFlow('main.gateway.event', 'tool.execution_start', {
+					toolName: event.data.toolName ?? 'unknown_tool'
+				});
+				break;
+			case 'tool.execution_complete':
+				logAgentFlow('main.gateway.event', 'tool.execution_complete', {
+					toolCallId: event.data.toolCallId,
+					success: event.data.success
+				});
+				break;
+			case 'session.error':
+				logAgentFlow('main.gateway.event', 'session.error', {
+					message: (event.data as { message?: string }).message ?? 'Session error'
+				});
+				break;
+			case 'session.idle':
+				logAgentFlow('main.gateway.event', 'session.idle');
+				break;
+			default:
+				logAgentFlow('main.gateway.event', event.type);
+				break;
+		}
+	}
+
+	private extractAssistantMessageText(data: unknown): string {
+		if (!data || typeof data !== 'object') {
+			return '';
+		}
+
+		const root = data as Record<string, unknown>;
+		const direct = this.extractTextFromContentLike(root.content);
+		if (direct) {
+			return direct;
+		}
+
+		const fromMessage = this.extractTextFromContentLike((root.message as Record<string, unknown> | undefined)?.content);
+		if (fromMessage) {
+			return fromMessage;
+		}
+
+		const textLike = [root.text, root.markdown, root.contentText]
+			.filter((item) => typeof item === 'string')
+			.join('\n')
+			.trim();
+		if (textLike) {
+			return textLike;
+		}
+
+		return '';
+	}
+
+	private extractTextFromContentLike(content: unknown): string {
+		if (!content) {
+			return '';
+		}
+
+		if (typeof content === 'string') {
+			return content.trim();
+		}
+
+		if (!Array.isArray(content)) {
+			return '';
+		}
+
+		const texts = content
+			.map((item) => {
+				if (!item || typeof item !== 'object') {
+					return '';
+				}
+				const record = item as Record<string, unknown>;
+				if (typeof record.text === 'string') {
+					return record.text;
+				}
+				const nestedText = record.text as Record<string, unknown> | undefined;
+				if (nestedText && typeof nestedText.content === 'string') {
+					return nestedText.content;
+				}
+				return '';
+			})
+			.filter(Boolean)
+			.join('\n')
+			.trim();
+
+		return texts;
 	}
 
 	/** Convert NaviTool[] → SDK Tool[] */

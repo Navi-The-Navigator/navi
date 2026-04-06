@@ -42,6 +42,11 @@
           "default": "gpt-4.1",
           "description": "Model name. In Copilot mode the default model is used unless overridden."
         },
+		"navi.streaming": {
+		  "type": "boolean",
+		  "default": true,
+		  "description": "Enable streaming session mode when creating Copilot SDK sessions. If disabled, replies are returned as complete messages."
+		},
         "navi.temperature": {
           "type": "number",
           "default": 0.2,
@@ -65,6 +70,26 @@
           "type": "string",
           "default": "",
           "markdownDescription": "MCP server config JSON. Example: `{\"math\":{\"transport\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-math\"]}}`"
+        },
+        "navi.copilotCliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional explicit path to Copilot CLI executable. Use this when auto detection fails (for example, set to node_modules/@github/copilot-win32-x64/copilot.exe on Windows)."
+        },
+        "navi.debugCopilotCliArgs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log the full GitHub Copilot CLI launch command and argv preview to the output channel 'Navi Copilot CLI'."
+    },
+    "navi.debugAgentReplyFlow": {
+      "type": "boolean",
+      "default": false,
+      "description": "Log the end-to-end agent reply pipeline, including session events, tool calls, deltas, fallback branches, and errors, to the output channel 'Navi Agent Flow'."
+    },
+    "navi.debugAgentReplyFlowReveal": {
+      "type": "boolean",
+      "default": false,
+      "description": "Automatically reveal the 'Navi Agent Flow' output channel whenever a reply-flow debug log is written."
         }
       }
     },
