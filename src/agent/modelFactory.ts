@@ -2,35 +2,58 @@ import * as vscode from 'vscode';
 import { CopilotClient } from '@github/copilot-sdk';
 import type { CopilotClientOptions, SessionConfig } from '@github/copilot-sdk';
 
-export const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
-export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
+export type AuthMode = 'copilot' | 'byok';
+
+export const DEFAULT_API_BASE_URL = 'https://api.deepseek.com/v1';
+export const DEFAULT_MODEL = 'deepseek-reasoner';
 export const DEFAULT_RECURSION_LIMIT = 150;
 
 /**
  * Create a {@link CopilotClient}.
  *
- * The client uses stdio transport to the bundled CLI and does NOT
- * require a logged-in GitHub user (BYOK credentials are passed at
- * session-creation time via {@link resolveProvider}).
+ * - **copilot** mode: `useLoggedInUser: true` + optional `githubToken`
+ *   obtained from `vscode.authentication`.
+ * - **byok** mode: `useLoggedInUser: false`; BYOK credentials are
+ *   passed at session-creation time via {@link resolveProvider}.
  */
-export function createCopilotClient(): CopilotClient {
+export async function createCopilotClient(
+	config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration('navi')
+): Promise<CopilotClient> {
+	const authMode = resolveAuthMode(config);
+
+	if (authMode === 'copilot') {
+		const githubToken = await acquireGitHubToken();
+		const options: CopilotClientOptions = {
+			useLoggedInUser: !githubToken,
+			githubToken,
+			logLevel: 'error'
+		};
+		return new CopilotClient(options);
+	}
+
+	// BYOK – no GitHub auth required
 	const options: CopilotClientOptions = {
 		useLoggedInUser: false,
 		logLevel: 'error'
 	};
-
 	return new CopilotClient(options);
 }
 
 /**
  * Build the BYOK provider config for session creation.
+ * Returns `undefined` in copilot mode (the SDK uses Copilot's own endpoint).
  */
 export function resolveProvider(
 	config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration('navi')
-): SessionConfig['provider'] {
+): SessionConfig['provider'] | undefined {
+	const authMode = resolveAuthMode(config);
+	if (authMode === 'copilot') {
+		return undefined;
+	}
+
 	const apiKey = resolveApiKey(config);
 	if (!apiKey) {
-		throw new Error('缺少 API Key。请先通过 Settings 配置 navi.deepseekApiKey，或确认使用环境变量 DEEPSEEK_API_KEY。');
+		throw new Error('缺少 API Key。请先通过 Settings 配置 navi.apiKey，或设置环境变量 NAVI_API_KEY。');
 	}
 
 	return {
@@ -40,23 +63,48 @@ export function resolveProvider(
 	};
 }
 
+export function resolveAuthMode(config: vscode.WorkspaceConfiguration): AuthMode {
+	const value = (config.get<string>('authMode') ?? 'copilot').trim().toLowerCase();
+	return value === 'byok' ? 'byok' : 'copilot';
+}
+
 export function resolveApiKey(config: vscode.WorkspaceConfiguration): string {
-	const configuredApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+	// New generic setting
+	const configuredApiKey = (config.get<string>('apiKey') ?? '').trim();
 	if (configuredApiKey) {
 		return configuredApiKey;
 	}
 
-	return (process.env.DEEPSEEK_API_KEY ?? '').trim();
+	// Legacy setting (backwards-compatible)
+	const legacyApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+	if (legacyApiKey) {
+		return legacyApiKey;
+	}
+
+	// Environment variables (new → legacy)
+	return (process.env.NAVI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? '').trim();
 }
 
 export function resolveBaseUrl(config: vscode.WorkspaceConfiguration): string {
-	const configuredBaseUrl = (config.get<string>('deepseekBaseUrl', DEFAULT_DEEPSEEK_BASE_URL) ?? '').trim();
-	return configuredBaseUrl || DEFAULT_DEEPSEEK_BASE_URL;
+	const configuredBaseUrl = (config.get<string>('apiBaseUrl', DEFAULT_API_BASE_URL) ?? '').trim();
+	if (configuredBaseUrl) {
+		return configuredBaseUrl;
+	}
+
+	// Legacy setting
+	const legacyBaseUrl = (config.get<string>('deepseekBaseUrl', DEFAULT_API_BASE_URL) ?? '').trim();
+	return legacyBaseUrl || DEFAULT_API_BASE_URL;
 }
 
 export function resolveModel(config: vscode.WorkspaceConfiguration): string {
-	const configuredModel = (config.get<string>('deepseekModel', DEFAULT_DEEPSEEK_MODEL) ?? '').trim();
-	return configuredModel || DEFAULT_DEEPSEEK_MODEL;
+	const configuredModel = (config.get<string>('model', DEFAULT_MODEL) ?? '').trim();
+	if (configuredModel) {
+		return configuredModel;
+	}
+
+	// Legacy setting
+	const legacyModel = (config.get<string>('deepseekModel', DEFAULT_MODEL) ?? '').trim();
+	return legacyModel || DEFAULT_MODEL;
 }
 
 export function resolveTemperature(config: vscode.WorkspaceConfiguration, override?: number): number | undefined {
@@ -80,4 +128,25 @@ export function resolveRecursionLimit(config: vscode.WorkspaceConfiguration): nu
 		return 200;
 	}
 	return integer;
+}
+
+/**
+ * Try to obtain a GitHub token via the VS Code authentication API.
+ * Falls back to `GITHUB_TOKEN` env var.
+ * Returns `undefined` when no token is available (the SDK will
+ * fall back to `useLoggedInUser` / gh CLI auth).
+ */
+async function acquireGitHubToken(): Promise<string | undefined> {
+	try {
+		const session = await vscode.authentication.getSession('github', ['read:user'], {
+			createIfNone: false,
+			silent: true
+		});
+		if (session?.accessToken) {
+			return session.accessToken;
+		}
+	} catch {
+		// best-effort
+	}
+	return (process.env.GITHUB_TOKEN ?? '').trim() || undefined;
 }

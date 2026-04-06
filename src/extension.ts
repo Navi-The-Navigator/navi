@@ -553,12 +553,20 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 	private async ensureApiKeyBeforeFirstMessage(): Promise<boolean> {
 		const config = vscode.workspace.getConfiguration('navi');
-		const configuredApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+		const authMode = (config.get<string>('authMode') ?? 'copilot').trim().toLowerCase();
+
+		// Copilot mode: no API key needed (authentication via GitHub)
+		if (authMode === 'copilot') {
+			return true;
+		}
+
+		// BYOK mode: require an API key
+		const configuredApiKey = (config.get<string>('apiKey') ?? config.get<string>('deepseekApiKey') ?? '').trim();
 		if (configuredApiKey) {
 			return true;
 		}
 
-		const envApiKey = (process.env.DEEPSEEK_API_KEY ?? '').trim();
+		const envApiKey = (process.env.NAVI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? '').trim();
 		if (envApiKey) {
 			const hasConfirmedEnvApiKey = this.globalState.get<boolean>(
 				NaviSidebarViewProvider.envApiKeyConfirmedStateKey,
@@ -569,7 +577,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			}
 
 			const choice = await vscode.window.showInformationMessage(
-				'检测到环境变量 DEEPSEEK_API_KEY。当前未在 VS Code 中配置 API Key。是否先使用环境变量继续？',
+				'检测到环境变量中的 API Key。当前未在 VS Code 中配置 API Key。是否先使用环境变量继续？',
 				{ modal: true },
 				'使用环境变量',
 				'去设置 Key'
@@ -582,7 +590,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 			if (choice === '去设置 Key') {
 				await this.settingsManager.openApiKeySettings();
-				const refreshedApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+				const refreshedApiKey = (config.get<string>('apiKey') ?? '').trim();
 				if (refreshedApiKey) {
 					return true;
 				}
@@ -593,17 +601,22 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		const setupChoice = await vscode.window.showWarningMessage(
-			'还没有可用的 API Key。是否现在去设置？',
+			'BYOK 模式下还没有可用的 API Key。是否现在去设置？',
 			{ modal: true },
-			'去设置 Key'
+			'去设置 Key',
+			'切换到 Copilot 模式'
 		);
-		if (setupChoice !== '去设置 Key') {
-			return false;
+		if (setupChoice === '去设置 Key') {
+			await this.settingsManager.openApiKeySettings();
+			const updatedApiKey = (config.get<string>('apiKey') ?? '').trim();
+			return !!updatedApiKey;
 		}
-
-		await this.settingsManager.openApiKeySettings();
-		const updatedApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
-		return !!updatedApiKey;
+		if (setupChoice === '切换到 Copilot 模式') {
+			await config.update('authMode', 'copilot', vscode.ConfigurationTarget.Global);
+			vscode.window.showInformationMessage('已切换到 GitHub Copilot 模式。');
+			return true;
+		}
+		return false;
 	}
 
 	private async postError(webview: vscode.Webview, text: string): Promise<void> {
@@ -615,6 +628,10 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 	private didAffectChatModelConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
 		return (
+			event.affectsConfiguration('navi.authMode') ||
+			event.affectsConfiguration('navi.apiKey') ||
+			event.affectsConfiguration('navi.apiBaseUrl') ||
+			event.affectsConfiguration('navi.model') ||
 			event.affectsConfiguration('navi.deepseekApiKey') ||
 			event.affectsConfiguration('navi.deepseekBaseUrl') ||
 			event.affectsConfiguration('navi.deepseekModel') ||

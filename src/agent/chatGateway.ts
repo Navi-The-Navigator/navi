@@ -143,7 +143,8 @@ export class DeepSeekChatGateway {
 	}
 
 	private async initClient(): Promise<CopilotClient> {
-		const client = createCopilotClient();
+		const config = vscode.workspace.getConfiguration('navi');
+		const client = await createCopilotClient(config);
 		await client.start();
 		return client;
 	}
@@ -162,18 +163,23 @@ export class DeepSeekChatGateway {
 
 		const sdkTools = this.convertTools(this.tools);
 
-		const session = await client.createSession({
+		const sessionConfig: Parameters<CopilotClient['createSession']>[0] = {
 			sessionId,
 			model,
 			tools: sdkTools,
 			mcpServers,
-			provider,
 			onPermissionRequest: approveAll,
 			systemMessage: {
 				mode: 'replace',
 				content: SYSTEM_PROMPT
 			}
-		});
+		};
+
+		if (provider) {
+			sessionConfig.provider = provider;
+		}
+
+		const session = await client.createSession(sessionConfig);
 
 		this.sessionMap.set(sessionId, session);
 		return session;

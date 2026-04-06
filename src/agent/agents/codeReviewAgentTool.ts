@@ -264,20 +264,27 @@ async function runCodeReview(input: CodeReviewRunnerInput): Promise<string> {
 		skipPermission: true
 	}));
 
-	const client = createCopilotClient();
+	const client = await createCopilotClient(config);
 
 	try {
 		await client.start();
-		const session = await client.createSession({
+
+		const provider = resolveProvider(config);
+		const sessionConfig: Parameters<typeof client.createSession>[0] = {
 			model: resolveModel(config),
 			tools: sdkTools,
-			provider: resolveProvider(config),
 			onPermissionRequest: approveAll,
 			systemMessage: {
 				mode: 'replace',
 				content: CODE_REVIEW_AGENT_SYSTEM_PROMPT
 			}
-		});
+		};
+
+		if (provider) {
+			sessionConfig.provider = provider;
+		}
+
+		const session = await client.createSession(sessionConfig);
 
 		let reviewText = '';
 
