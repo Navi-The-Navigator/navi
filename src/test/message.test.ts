@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { extractMessageText, getMessageType } from '../utils/message';
+import { extractMessageText, getMessageType } from '../utils/message.js';
 
 suite('message utilities', () => {
 	test('extracts text from plain string content', () => {

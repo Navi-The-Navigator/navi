@@ -1,4 +1,16 @@
-import type { MessageContent } from '@langchain/core/messages';
+/**
+ * Content that may be a plain string, or an array of content blocks
+ * (text / image_url / etc.).  This replaces the former LangChain
+ * `MessageContent` type with an equivalent local definition.
+ */
+export type MessageContent =
+	| string
+	| Array<
+		| string
+		| { type: 'text'; text: string }
+		| { type: 'image_url'; image_url: { url: string } }
+		| { type: string; [key: string]: unknown }
+	>;
 
 export function extractMessageText(content?: MessageContent): string {
 	if (typeof content === 'string') {

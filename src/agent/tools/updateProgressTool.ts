@@ -1,4 +1,4 @@
-import { DynamicTool } from '@langchain/core/tools';
+import type { NaviTool } from '../naviTool';
 
 type UpdateProgressInput = {
 	text?: string;
@@ -10,12 +10,12 @@ type UpdateProgressDeps = {
 	onProgress: (text: string) => Promise<void> | void;
 };
 
-export function createUpdateProgressTool(deps: UpdateProgressDeps): DynamicTool {
-	return new DynamicTool({
+export function createUpdateProgressTool(deps: UpdateProgressDeps): NaviTool {
+	return {
 		name: 'update_progress',
 		description:
 			'Post a short progress update to the chat area. Input can be plain text or JSON: {text, stage?, status?}.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const input = parseInput(rawInput);
 			const text = buildProgressText(input);
 			if (!text) {
@@ -25,7 +25,7 @@ export function createUpdateProgressTool(deps: UpdateProgressDeps): DynamicTool 
 			await deps.onProgress(text);
 			return JSON.stringify({ ok: true, text }, null, 2);
 		}
-	});
+	};
 }
 
 function parseInput(rawInput: string): UpdateProgressInput {

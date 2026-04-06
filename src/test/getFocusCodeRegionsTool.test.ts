@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { createGetFocusCodeRegionsTool } from '../agent/tools/getFocusCodeRegionsTool';
+import { createGetFocusCodeRegionsTool } from '../agent/tools/getFocusCodeRegionsTool.js';
 import type { ChatFocusTarget } from '../types/chat';
 
 suite('createGetFocusCodeRegionsTool', () => {
@@ -17,7 +17,7 @@ suite('createGetFocusCodeRegionsTool', () => {
 		});
 
 		try {
-			const result = await tool.invoke('{"path":"../outside.ts"}');
+			const result = await tool.func('{"path":"../outside.ts"}');
 			const payload = JSON.parse(result) as { ok: boolean; error?: string };
 			assert.strictEqual(payload.ok, false);
 			assert.strictEqual(payload.error, 'Path is outside the workspace.');
@@ -55,7 +55,7 @@ suite('createGetFocusCodeRegionsTool', () => {
 		});
 
 		try {
-			const result = await tool.invoke('{"path":"src\\\\demo.ts"}');
+			const result = await tool.func('{"path":"src\\\\demo.ts"}');
 			const payload = JSON.parse(result) as {
 				ok: boolean;
 				sessionId: string;

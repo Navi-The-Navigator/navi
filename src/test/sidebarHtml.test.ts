@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { getSidebarHtml } from '../webview/sidebarHtml';
+import { getSidebarHtml } from '../webview/sidebarHtml.js';
 
 suite('getSidebarHtml', () => {
 	test('renders the expected shell, stylesheet, and CSP nonce', () => {

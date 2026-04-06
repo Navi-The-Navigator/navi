@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { createUpdateProgressTool } from '../agent/tools/updateProgressTool';
+import { createUpdateProgressTool } from '../agent/tools/updateProgressTool.js';
 
 suite('createUpdateProgressTool', () => {
 	test('posts plain text progress update', async () => {
@@ -10,7 +10,7 @@ suite('createUpdateProgressTool', () => {
 			}
 		});
 
-		const result = JSON.parse(await tool.invoke('正在扫描项目结构')) as {
+		const result = JSON.parse(await tool.func('正在扫描项目结构')) as {
 			ok: boolean;
 			text: string;
 		};
@@ -29,7 +29,7 @@ suite('createUpdateProgressTool', () => {
 		});
 
 		const result = JSON.parse(
-			await tool.invoke('{"text":"已定位核心模块","stage":"analysis","status":"in_progress"}')
+			await tool.func('{"text":"已定位核心模块","stage":"analysis","status":"in_progress"}')
 		) as {
 			ok: boolean;
 			text: string;
@@ -48,7 +48,7 @@ suite('createUpdateProgressTool', () => {
 			}
 		});
 
-		const result = JSON.parse(await tool.invoke('{"stage":"analysis"}')) as {
+		const result = JSON.parse(await tool.func('{"stage":"analysis"}')) as {
 			ok: boolean;
 			error: string;
 		};

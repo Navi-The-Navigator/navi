@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { createClearFocusCodeRegionTool } from '../agent/tools/clearFocusCodeRegionTool';
+import { createClearFocusCodeRegionTool } from '../agent/tools/clearFocusCodeRegionTool.js';
 import type { ChatFocusTarget } from '../types/chat';
 
 suite('createClearFocusCodeRegionTool', () => {
@@ -17,7 +17,7 @@ suite('createClearFocusCodeRegionTool', () => {
 		});
 
 		try {
-			const result = await tool.invoke('{}');
+			const result = await tool.func('{}');
 			const payload = JSON.parse(result) as { ok: boolean; error?: string };
 			assert.strictEqual(payload.ok, false);
 			assert.strictEqual(payload.error, 'Provide id or path, or set clearAll=true.');
@@ -54,7 +54,7 @@ suite('createClearFocusCodeRegionTool', () => {
 		});
 
 		try {
-			const result = await tool.invoke('{"path":"src\\\\demo.ts","startLine":1,"endLine":10}');
+			const result = await tool.func('{"path":"src\\\\demo.ts","startLine":1,"endLine":10}');
 			const payload = JSON.parse(result) as {
 				ok: boolean;
 				sessionId: string;

@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { ChatSessionStore } from '../chat/sessionStore';
+import { ChatSessionStore } from '../chat/sessionStore.js';
 
 suite('ChatSessionStore', () => {
 	test('initializes with one current session', () => {

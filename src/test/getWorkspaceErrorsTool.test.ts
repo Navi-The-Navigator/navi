@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { createGetWorkspaceErrorsTool } from '../agent/tools/getWorkspaceErrorsTool';
+import { createGetWorkspaceErrorsTool } from '../agent/tools/getWorkspaceErrorsTool.js';
 
 suite('createGetWorkspaceErrorsTool', () => {
 	test('returns workspace errors and filters out warnings by default', async () => {
@@ -34,7 +34,7 @@ suite('createGetWorkspaceErrorsTool', () => {
 				]
 			);
 
-			const result = await tool.invoke('');
+			const result = await tool.func('');
 			const payload = JSON.parse(result) as {
 				error?: string;
 				count: number;
@@ -108,7 +108,7 @@ suite('createGetWorkspaceErrorsTool', () => {
 				]
 			);
 
-			const result = await tool.invoke('{"paths":["src/demo.ts"],"includeWarnings":true}');
+			const result = await tool.func('{"paths":["src/demo.ts"],"includeWarnings":true}');
 			const payload = JSON.parse(result) as {
 				count: number;
 				results: Array<{
@@ -146,7 +146,7 @@ suite('createGetWorkspaceErrorsTool', () => {
 
 		try {
 			const tool = createGetWorkspaceErrorsTool(() => workspaceRoot, () => []);
-			const result = await tool.invoke('{"paths":["../outside.ts"]}');
+			const result = await tool.func('{"paths":["../outside.ts"]}');
 			const payload = JSON.parse(result) as { error?: string };
 
 			assert.strictEqual(payload.error, 'Path is outside the workspace: ../outside.ts');
@@ -157,7 +157,7 @@ suite('createGetWorkspaceErrorsTool', () => {
 
 	test('rejects when no workspace is open', async () => {
 		const tool = createGetWorkspaceErrorsTool(() => undefined, () => []);
-		const result = await tool.invoke('');
+		const result = await tool.func('');
 		const payload = JSON.parse(result) as { error?: string };
 
 		assert.strictEqual(payload.error, 'No workspace folder is open.');

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { DynamicTool } from '@langchain/core/tools';
 import * as vscode from 'vscode';
+import type { NaviTool } from '../naviTool';
 
 type WorkspaceRootResolver = () => string | undefined;
 
@@ -15,12 +15,12 @@ type ReadFileInput = {
 const DEFAULT_MAX_CHARS = 12000;
 const DEFAULT_LINE_WINDOW = 200;
 
-export function createReadFileTool(resolveWorkspaceRoot: WorkspaceRootResolver = getWorkspaceRoot): DynamicTool {
-	return new DynamicTool({
+export function createReadFileTool(resolveWorkspaceRoot: WorkspaceRootResolver = getWorkspaceRoot): NaviTool {
+	return {
 		name: 'read_file',
 		description:
 			'Read a file from workspace with line numbers. Input can be a plain path or JSON like {"path":"src/extension.ts","startLine":1,"endLine":120,"maxChars":12000}.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const workspaceRoot = resolveWorkspaceRoot();
 			if (!workspaceRoot) {
 				return errorResult('No workspace folder is open.');
@@ -77,7 +77,7 @@ export function createReadFileTool(resolveWorkspaceRoot: WorkspaceRootResolver =
 				2
 			);
 		}
-	});
+	};
 }
 
 function getWorkspaceRoot(): string | undefined {

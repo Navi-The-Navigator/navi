@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { DynamicTool } from '@langchain/core/tools';
 import * as vscode from 'vscode';
+import type { NaviTool } from '../naviTool';
 
 type WorkspaceRootResolver = () => string | undefined;
 
@@ -16,12 +16,12 @@ const DEFAULT_MAX_DEPTH = 3;
 const DEFAULT_MAX_ENTRIES = 300;
 const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist', 'out']);
 
-export function createProjectStructureTool(resolveWorkspaceRoot: WorkspaceRootResolver = getWorkspaceRoot): DynamicTool {
-	return new DynamicTool({
+export function createProjectStructureTool(resolveWorkspaceRoot: WorkspaceRootResolver = getWorkspaceRoot): NaviTool {
+	return {
 		name: 'read_project_structure',
 		description:
 			'Read workspace project structure as a tree. Input can be a path string, or JSON like {"path":"src","maxDepth":3,"maxEntries":300,"includeHidden":false}.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const workspaceRoot = resolveWorkspaceRoot();
 			if (!workspaceRoot) {
 				return errorResult('No workspace folder is open.');
@@ -105,7 +105,7 @@ export function createProjectStructureTool(resolveWorkspaceRoot: WorkspaceRootRe
 				2
 			);
 		}
-	});
+	};
 }
 
 function getWorkspaceRoot(): string | undefined {

@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { createSearchFilesTool } from '../agent/tools/searchFilesTool';
+import { createSearchFilesTool } from '../agent/tools/searchFilesTool.js';
 
 suite('createSearchFilesTool', () => {
 	test('finds files and directories by query', async () => {
@@ -12,7 +12,7 @@ suite('createSearchFilesTool', () => {
 
 		try {
 			const tool = createSearchFilesTool(() => workspaceRoot);
-			const result = await tool.invoke('socket');
+			const result = await tool.func('socket');
 			const payload = JSON.parse(result) as {
 				error?: string;
 				count: number;

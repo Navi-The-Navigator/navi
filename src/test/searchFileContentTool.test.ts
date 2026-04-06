@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { createSearchFileContentTool } from '../agent/tools/searchFileContentTool';
+import { createSearchFileContentTool } from '../agent/tools/searchFileContentTool.js';
 
 suite('createSearchFileContentTool', () => {
 	test('finds matching text in files with line numbers', async () => {
@@ -13,7 +13,7 @@ suite('createSearchFileContentTool', () => {
 
 		try {
 			const tool = createSearchFileContentTool(() => workspaceRoot);
-			const result = await tool.invoke('{"query":"ping","path":"src"}');
+			const result = await tool.func('{"query":"ping","path":"src"}');
 			const payload = JSON.parse(result) as {
 				error?: string;
 				count: number;

@@ -1,5 +1,5 @@
-import { DynamicTool } from '@langchain/core/tools';
 import type { ChatTodo } from '../../types/chat';
+import type { NaviTool } from '../naviTool';
 
 type ManageTodosAction =
 	| 'list'
@@ -37,12 +37,12 @@ type ManageTodosDeps = {
 	onTodosChanged?: (sessionId: string) => Promise<void> | void;
 };
 
-export function createManageTodosTool(deps: ManageTodosDeps): DynamicTool {
-	return new DynamicTool({
+export function createManageTodosTool(deps: ManageTodosDeps): NaviTool {
+	return {
 		name: 'manage_todos',
 		description:
 			'Manage user TODO list for the current chat session. Input JSON: {action:"add|delete|complete|reopen|set_completed|update|clear|replace|list", id?, index?, text?, completed?, completedOnly?, todos?}.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const input = parseInput(rawInput);
 			const sessionId = deps.getCurrentSessionId();
 			const action = input.action ?? inferAction(input);
@@ -102,7 +102,7 @@ export function createManageTodosTool(deps: ManageTodosDeps): DynamicTool {
 				2
 			);
 		}
-	});
+	};
 }
 
 function inferAction(input: ManageTodosInput): ManageTodosAction {

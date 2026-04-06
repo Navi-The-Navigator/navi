@@ -1,36 +1,20 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { DeepSeekChatGateway } from './agent/chatGateway';
-import {
-	createClearFocusCodeRegionTool,
-	type ClearFocusCodeRegionInput
-} from './agent/tools/clearFocusCodeRegionTool';
-import { createDateTimeTool } from './agent/tools/dateTimeTool';
-import { createFocusCodeRegionTool, type FocusCodeRegionInput } from './agent/tools/focusCodeRegionTool';
-import {
-	createGetFocusCodeRegionsTool,
-	type GetFocusCodeRegionsInput
-} from './agent/tools/getFocusCodeRegionsTool';
-import { createGetWorkspaceErrorsTool } from './agent/tools/getWorkspaceErrorsTool';
-import { createCodeReviewTool } from './agent/agents/codeReviewAgentTool';
-import type {
-	SubagentTraceCallbacks,
-	SubagentTraceErrorPayload,
-	SubagentTraceFinishPayload,
-	SubagentTraceStartInput
-} from './agent/subagentTrace';
-import { createManageTodosTool } from './agent/tools/manageTodosTool';
-import { createProjectStructureTool } from './agent/tools/projectStructureTool';
-import { createReadFileTool } from './agent/tools/readFileTool';
-import { createSearchFileContentTool } from './agent/tools/searchFileContentTool';
-import { createSearchFilesTool } from './agent/tools/searchFilesTool';
-import { createUpdateProgressTool } from './agent/tools/updateProgressTool';
-import { ChatSessionStore } from './chat/sessionStore';
-import { SettingsManager } from './settings/settingsManager';
+import type { SessionEvent } from '@github/copilot-sdk';
+import type { NaviChatGateway } from './agent/chatGateway';
+import { CODE_REVIEW_AGENT_DISPLAY_NAME, CODE_REVIEW_AGENT_NAME } from './agent/agents/customAgents.js';
+import { buildFocusActionPrompt, type FocusAction } from './agent/config.js';
+import { logAgentFlow, summarizeText } from './agent/debugLogger.js';
+import { createMainChatGateway } from './agent/mainAgent.js';
+import type { ClearFocusCodeRegionInput } from './agent/tools/clearFocusCodeRegionTool';
+import type { FocusCodeRegionInput } from './agent/tools/focusCodeRegionTool';
+import type { GetFocusCodeRegionsInput } from './agent/tools/getFocusCodeRegionsTool';
+import { ChatSessionStore } from './chat/sessionStore.js';
+import { SettingsManager } from './settings/settingsManager.js';
 import type { ChatFocusTarget, ChatInboundMessage, ChatRun } from './types/chat';
-import { createFocusTargetId } from './utils/id';
-import { getFocusHtml } from './webview/focusHtml';
-import { getSidebarHtml } from './webview/sidebarHtml';
+import { createFocusTargetId } from './utils/id.js';
+import { getFocusHtml } from './webview/focusHtml.js';
+import { getSidebarHtml } from './webview/sidebarHtml.js';
 
 class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'navi.sidebarWebview';
@@ -41,7 +25,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	public static readonly focusNextCommand = 'navi.focusNext';
 
 	private readonly sessionStore = new ChatSessionStore();
-	private readonly gateway: DeepSeekChatGateway;
+	private readonly gateway: NaviChatGateway;
 	private readonly settingsManager = new SettingsManager();
 	private readonly focusTargetsBySessionId = new Map<string, ChatFocusTarget[]>();
 	private readonly activeFocusIndexBySessionId = new Map<string, number>();
@@ -64,6 +48,9 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	private activeGenerationAbortController?: AbortController;
 	private activeGenerationSessionId?: string;
 	private readonly activeSubagentRunIds = new Set<string>();
+	private readonly subagentRunIdsByParentToolCallId = new Map<string, string>();
+	private readonly subagentRunIdsByToolCallId = new Map<string, string>();
+	private readonly subagentToolNamesByToolCallId = new Map<string, string>();
 	private activeWebview?: vscode.Webview;
 	private activeFocusWebview?: vscode.Webview;
 
@@ -112,61 +99,37 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		);
 		this.updateFocusSwitcherStatusBar();
 
-		this.gateway = new DeepSeekChatGateway([
-			createDateTimeTool(),
-			createProjectStructureTool(),
-			createReadFileTool(),
-			createSearchFilesTool(),
-			createSearchFileContentTool(),
-			createGetWorkspaceErrorsTool(),
-			createCodeReviewTool(undefined, undefined, this.createSubagentTraceCallbacks({
-				fallbackTitle: 'Task Assessment Agent',
-				kind: 'code_review',
-				cancelledFinalText: '已取消本次子任务。'
-			})),
-			createFocusCodeRegionTool({
-				getCurrentSessionId: () => this.sessionStore.getCurrentSessionId(),
-				focusRegion: async (sessionId, input) => this.focusUserCodeRegion(sessionId, input)
-			}),
-			createClearFocusCodeRegionTool({
-				getCurrentSessionId: () => this.sessionStore.getCurrentSessionId(),
-				clearFocusRegions: async (sessionId, input) => this.clearFocusRegions(sessionId, input)
-			}),
-			createGetFocusCodeRegionsTool({
-				getCurrentSessionId: () => this.sessionStore.getCurrentSessionId(),
-				getFocusRegions: async (sessionId, input) => this.getFocusRegions(sessionId, input)
-			}),
-			createUpdateProgressTool({
-				onProgress: async (text) => {
-					const sessionId = this.activeGenerationSessionId;
-					if (sessionId) {
-						this.sessionStore.appendStatusEntry(sessionId, 'progress', text);
-					}
-					if (!this.activeWebview) {
-						return;
-					}
-					await this.activeWebview.postMessage({
-						type: 'chat:toolStatus',
-						text,
-						transient: false
-					});
+		this.gateway = createMainChatGateway({
+			getCurrentSessionId: () => this.sessionStore.getCurrentSessionId(),
+			getTodos: (sessionId) => this.sessionStore.getTodos(sessionId),
+			addTodo: (sessionId, text) => this.sessionStore.addTodo(sessionId, text),
+			deleteTodo: (sessionId, todoId) => this.sessionStore.deleteTodo(sessionId, todoId),
+			updateTodoText: (sessionId, todoId, text) => this.sessionStore.updateTodoText(sessionId, todoId, text),
+			setTodoCompleted: (sessionId, todoId, completed) =>
+				this.sessionStore.setTodoCompleted(sessionId, todoId, completed),
+			clearTodos: (sessionId, completedOnly) => this.sessionStore.clearTodos(sessionId, completedOnly),
+			replaceTodos: (sessionId, todos) => this.sessionStore.replaceTodos(sessionId, todos),
+			onTodosChanged: async (sessionId) => {
+				await this.postTodosToActiveWebview(sessionId);
+			},
+			focusRegion: async (sessionId, input) => this.focusUserCodeRegion(sessionId, input),
+			clearFocusRegions: async (sessionId, input) => this.clearFocusRegions(sessionId, input),
+			getFocusRegions: async (sessionId, input) => this.getFocusRegions(sessionId, input),
+			onMainProgress: async (text) => {
+				const sessionId = this.activeGenerationSessionId;
+				if (sessionId) {
+					this.sessionStore.appendStatusEntry(sessionId, 'progress', text);
 				}
-			}),
-			createManageTodosTool({
-				getCurrentSessionId: () => this.sessionStore.getCurrentSessionId(),
-				getTodos: (sessionId) => this.sessionStore.getTodos(sessionId),
-				addTodo: (sessionId, text) => this.sessionStore.addTodo(sessionId, text),
-				deleteTodo: (sessionId, todoId) => this.sessionStore.deleteTodo(sessionId, todoId),
-				updateTodoText: (sessionId, todoId, text) => this.sessionStore.updateTodoText(sessionId, todoId, text),
-				setTodoCompleted: (sessionId, todoId, completed) =>
-					this.sessionStore.setTodoCompleted(sessionId, todoId, completed),
-				clearTodos: (sessionId, completedOnly) => this.sessionStore.clearTodos(sessionId, completedOnly),
-				replaceTodos: (sessionId, todos) => this.sessionStore.replaceTodos(sessionId, todos),
-				onTodosChanged: async (sessionId) => {
-					await this.postTodosToActiveWebview(sessionId);
+				if (!this.activeWebview) {
+					return;
 				}
-			})
-		]);
+				await this.activeWebview.postMessage({
+					type: 'chat:toolStatus',
+					text,
+					transient: false
+				});
+			}
+		});
 	}
 
 	public dispose(): void {
@@ -443,6 +406,9 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 	private async handleUserMessage(webview: vscode.Webview, prompt: string): Promise<void> {
 		if (this.isGenerating) {
+			logAgentFlow('main.extension', 'handleUserMessage:rejected_busy', {
+				currentSessionId: this.sessionStore.getCurrentSessionId()
+			});
 			await this.postError(webview, '请等待当前回答完成后再发送下一条消息。');
 			return;
 		}
@@ -461,7 +427,13 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		let shouldPersistElapsed = false;
 		const sessionId = this.sessionStore.getCurrentSessionId();
 		this.activeGenerationSessionId = sessionId;
-		this.sessionStore.startAssistantReply(sessionId);
+		const assistantRunId = this.sessionStore.startAssistantReply(sessionId);
+		logAgentFlow('main.extension', 'handleUserMessage:start', {
+			sessionId,
+			assistantRunId,
+			promptLength: prompt.length,
+			promptPreview: summarizeText(prompt)
+		});
 		await webview.postMessage({ type: 'chat:assistantStart' });
 
 		try {
@@ -469,45 +441,41 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			await this.postSessionSummary(webview);
 
 			const assistantText = await this.gateway.streamAssistantReply(sessionId, prompt, {
-				onToolStart: async (toolName) => {
-					if (this.activeSubagentRunIds.size > 0) {
-						return;
-					}
-					if (toolName === 'code_review_agent') {
-						return;
-					}
-					await webview.postMessage({
-						type: 'chat:toolStatus',
-						text: `正在调用工具 \`${toolName}\`...`,
-						transient: true
+				onAssistantDelta: async (delta: string) => {
+					logAgentFlow('main.extension', 'callback:onAssistantDelta', {
+						sessionId,
+						assistantRunId,
+						deltaLength: delta.length,
+						deltaPreview: summarizeText(delta),
+						activeSubagentRuns: this.activeSubagentRunIds.size
 					});
-				},
-				onToolEnd: async () => {
-					if (this.activeSubagentRunIds.size > 0) {
-						return;
-					}
-					if (!this.activeWebview) {
-						return;
-					}
-					await webview.postMessage({
-						type: 'chat:toolStatusDone'
-					});
-				},
-				onAssistantDelta: async (delta) => {
-					if (this.activeSubagentRunIds.size > 0) {
-						return;
-					}
 					this.sessionStore.appendAssistantDelta(sessionId, delta);
 					await webview.postMessage({
 						type: 'chat:assistantDelta',
 						text: delta
 					});
 				},
+				onSessionEvent: async (event) => {
+					await this.handleSessionEventForUi(sessionId, webview, event);
+				},
 				shouldCancel: () => this.cancelGenerationRequested,
 				abortSignal: generationAbortController.signal
 			});
+			logAgentFlow('main.extension', 'handleUserMessage:stream_returned', {
+				sessionId,
+				assistantRunId,
+				assistantLength: assistantText.length,
+				assistantPreview: summarizeText(assistantText),
+				activeSubagentRuns: this.activeSubagentRunIds.size
+			});
 
 			if (!assistantText.trim()) {
+				logAgentFlow('main.extension', 'handleUserMessage:empty_response_fallback', {
+					sessionId,
+					assistantRunId,
+					activeSubagentRuns: this.activeSubagentRunIds.size,
+					cancelRequested: this.cancelGenerationRequested
+				});
 				this.sessionStore.appendAssistantDelta(sessionId, '我暂时没有生成可显示的文本响应。');
 				await webview.postMessage({
 					type: 'chat:assistantDelta',
@@ -518,12 +486,24 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(2);
 			elapsedText = `用时：${elapsedSeconds}s`;
 			shouldPersistElapsed = true;
+			logAgentFlow('main.extension', 'handleUserMessage:elapsed_ready', {
+				sessionId,
+				assistantRunId,
+				elapsedText
+			});
 			await webview.postMessage({
 				type: 'chat:elapsed',
 				text: elapsedText
 			});
 		} catch (error) {
 			const messageText = error instanceof Error ? error.message : 'Unknown error';
+			logAgentFlow('main.extension', 'handleUserMessage:error', {
+				sessionId,
+				assistantRunId,
+				messageText,
+				error,
+				cancelRequested: this.cancelGenerationRequested
+			});
 			if (messageText.includes('用户已取消')) {
 				this.sessionStore.setAssistantError(sessionId, '已取消本次回复。');
 				await webview.postMessage({
@@ -532,14 +512,24 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 				});
 				return;
 			}
-			this.sessionStore.setAssistantError(sessionId, `请求 DeepSeek 失败：${messageText}`);
-			await this.postError(webview, `请求 DeepSeek 失败：${messageText}`);
+			this.sessionStore.setAssistantError(sessionId, `请求 LLM 失败：${messageText}`);
+			await this.postError(webview, `请求 LLM 失败：${messageText}`);
 		} finally {
+			logAgentFlow('main.extension', 'handleUserMessage:finally_before_finish', {
+				sessionId,
+				assistantRunId,
+				shouldPersistElapsed,
+				elapsedText,
+				activeSubagentRuns: this.activeSubagentRunIds.size
+			});
 			this.sessionStore.finishAssistantReply(sessionId);
 			if (shouldPersistElapsed && elapsedText) {
 				this.sessionStore.appendStatusEntry(sessionId, 'elapsed', elapsedText);
 			}
 			this.activeSubagentRunIds.clear();
+			this.subagentRunIdsByParentToolCallId.clear();
+			this.subagentRunIdsByToolCallId.clear();
+			this.subagentToolNamesByToolCallId.clear();
 			await this.setMainToolStatusSuspended(false);
 			this.isGenerating = false;
 			this.cancelGenerationRequested = false;
@@ -548,17 +538,31 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 				this.activeGenerationAbortController = undefined;
 			}
 			await webview.postMessage({ type: 'chat:assistantDone' });
+			logAgentFlow('main.extension', 'handleUserMessage:finished', {
+				sessionId,
+				assistantRunId,
+				shouldPersistElapsed,
+				elapsedText
+			});
 		}
 	}
 
 	private async ensureApiKeyBeforeFirstMessage(): Promise<boolean> {
 		const config = vscode.workspace.getConfiguration('navi');
-		const configuredApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+		const authMode = (config.get<string>('authMode') ?? 'copilot').trim().toLowerCase();
+
+		// Copilot mode: no API key needed (authentication via GitHub)
+		if (authMode === 'copilot') {
+			return true;
+		}
+
+		// BYOK mode: require an API key
+		const configuredApiKey = (config.get<string>('apiKey') ?? '').trim();
 		if (configuredApiKey) {
 			return true;
 		}
 
-		const envApiKey = (process.env.DEEPSEEK_API_KEY ?? '').trim();
+		const envApiKey = (process.env.NAVI_API_KEY ?? '').trim();
 		if (envApiKey) {
 			const hasConfirmedEnvApiKey = this.globalState.get<boolean>(
 				NaviSidebarViewProvider.envApiKeyConfirmedStateKey,
@@ -569,7 +573,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			}
 
 			const choice = await vscode.window.showInformationMessage(
-				'检测到环境变量 DEEPSEEK_API_KEY。当前未在 VS Code 中配置 API Key。是否先使用环境变量继续？',
+				'检测到环境变量中的 API Key。当前未在 VS Code 中配置 API Key。是否先使用环境变量继续？',
 				{ modal: true },
 				'使用环境变量',
 				'去设置 Key'
@@ -582,7 +586,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 			if (choice === '去设置 Key') {
 				await this.settingsManager.openApiKeySettings();
-				const refreshedApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
+				const refreshedApiKey = (config.get<string>('apiKey') ?? '').trim();
 				if (refreshedApiKey) {
 					return true;
 				}
@@ -593,20 +597,30 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		const setupChoice = await vscode.window.showWarningMessage(
-			'还没有可用的 API Key。是否现在去设置？',
+			'BYOK 模式下还没有可用的 API Key。是否现在去设置？',
 			{ modal: true },
-			'去设置 Key'
+			'去设置 Key',
+			'切换到 Copilot 模式'
 		);
-		if (setupChoice !== '去设置 Key') {
-			return false;
+		if (setupChoice === '去设置 Key') {
+			await this.settingsManager.openApiKeySettings();
+			const updatedApiKey = (config.get<string>('apiKey') ?? '').trim();
+			return !!updatedApiKey;
 		}
-
-		await this.settingsManager.openApiKeySettings();
-		const updatedApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
-		return !!updatedApiKey;
+		if (setupChoice === '切换到 Copilot 模式') {
+			await config.update('authMode', 'copilot', vscode.ConfigurationTarget.Global);
+			vscode.window.showInformationMessage('已切换到 GitHub Copilot 模式。');
+			return true;
+		}
+		return false;
 	}
 
 	private async postError(webview: vscode.Webview, text: string): Promise<void> {
+		logAgentFlow('main.extension', 'postError', {
+			text,
+			activeSessionId: this.sessionStore.getCurrentSessionId(),
+			activeGenerationSessionId: this.activeGenerationSessionId
+		});
 		await webview.postMessage({
 			type: 'chat:error',
 			text
@@ -615,9 +629,10 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 	private didAffectChatModelConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
 		return (
-			event.affectsConfiguration('navi.deepseekApiKey') ||
-			event.affectsConfiguration('navi.deepseekBaseUrl') ||
-			event.affectsConfiguration('navi.deepseekModel') ||
+			event.affectsConfiguration('navi.authMode') ||
+			event.affectsConfiguration('navi.apiKey') ||
+			event.affectsConfiguration('navi.apiBaseUrl') ||
+			event.affectsConfiguration('navi.model') ||
 			event.affectsConfiguration('navi.temperature') ||
 			event.affectsConfiguration('navi.mcpEnabled') ||
 			event.affectsConfiguration('navi.mcpServersJson')
@@ -723,101 +738,245 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		await this.postSessionViewState(webview, currentSessionId);
 	}
 
-	private createSubagentTraceCallbacks(input: {
-		fallbackTitle: string;
-		kind: ChatRun['kind'];
-		cancelledFinalText?: string;
-		autoCollapse?: boolean;
-	}): SubagentTraceCallbacks {
-		return {
-			start: async (startInput: SubagentTraceStartInput) => {
-				const sessionId = this.activeGenerationSessionId;
-				if (!sessionId) {
-					return undefined;
+	private async handleSessionEventForUi(
+		sessionId: string,
+		webview: vscode.Webview,
+		event: SessionEvent
+	): Promise<void> {
+		switch (event.type) {
+			case 'tool.execution_start':
+				await this.handleToolExecutionStart(sessionId, webview, event);
+				break;
+			case 'tool.execution_progress':
+				await this.handleToolExecutionProgress(sessionId, event);
+				break;
+			case 'tool.execution_complete':
+				await this.handleToolExecutionComplete(sessionId, webview, event);
+				break;
+			case 'subagent.started':
+				await this.handleSubagentStarted(sessionId, event);
+				break;
+			case 'subagent.completed':
+				await this.handleSubagentCompleted(sessionId, event);
+				break;
+			case 'subagent.failed':
+				await this.handleSubagentFailed(sessionId, event);
+				break;
+			default:
+				break;
+		}
+	}
+
+	private async handleToolExecutionStart(
+		sessionId: string,
+		webview: vscode.Webview,
+		event: Extract<SessionEvent, { type: 'tool.execution_start' }>
+	): Promise<void> {
+		const toolName = event.data.toolName ?? 'unknown_tool';
+		const parentToolCallId = event.data.parentToolCallId;
+		const runId = parentToolCallId ? this.subagentRunIdsByParentToolCallId.get(parentToolCallId) : undefined;
+
+		logAgentFlow('main.extension', 'callback:onToolStart', {
+			sessionId,
+			toolName,
+			toolCallId: event.data.toolCallId,
+			parentToolCallId,
+			runId,
+			activeSubagentRuns: this.activeSubagentRunIds.size
+		});
+
+		if (runId) {
+			this.subagentRunIdsByToolCallId.set(event.data.toolCallId, runId);
+			this.subagentToolNamesByToolCallId.set(event.data.toolCallId, toolName);
+			this.sessionStore.setRunTransientToolStatus(sessionId, runId, `正在调用工具 \`${toolName}\`...`);
+			await this.postRunStateToActiveWebview(sessionId, runId);
+			return;
+		}
+
+		if (this.activeSubagentRunIds.size > 0) {
+			return;
+		}
+
+		await webview.postMessage({
+			type: 'chat:toolStatus',
+			text: `正在调用工具 \`${toolName}\`...`,
+			transient: true
+		});
+	}
+
+	private async handleToolExecutionProgress(
+		sessionId: string,
+		event: Extract<SessionEvent, { type: 'tool.execution_progress' }>
+	): Promise<void> {
+		const runId = this.subagentRunIdsByToolCallId.get(event.data.toolCallId);
+		if (!runId) {
+			return;
+		}
+		this.sessionStore.appendRunProgress(sessionId, runId, event.data.progressMessage);
+		await this.postRunStateToActiveWebview(sessionId, runId);
+	}
+
+	private async handleToolExecutionComplete(
+		sessionId: string,
+		webview: vscode.Webview,
+		event: Extract<SessionEvent, { type: 'tool.execution_complete' }>
+	): Promise<void> {
+		const runId = this.subagentRunIdsByToolCallId.get(event.data.toolCallId);
+		const toolName = this.subagentToolNamesByToolCallId.get(event.data.toolCallId);
+
+		logAgentFlow('main.extension', 'callback:onToolEnd', {
+			sessionId,
+			toolCallId: event.data.toolCallId,
+			toolName,
+			runId,
+			success: event.data.success,
+			activeSubagentRuns: this.activeSubagentRunIds.size
+		});
+
+		if (runId) {
+			if (toolName === 'update_progress') {
+				const progressText = this.extractProgressFromToolResult(event);
+				if (progressText) {
+					this.sessionStore.appendRunProgress(sessionId, runId, progressText);
 				}
-				const run = this.sessionStore.startRun(sessionId, {
-					title: startInput.title || input.fallbackTitle,
-					kind: startInput.kind || input.kind,
-					parentRunId: startInput.parentRunId,
-					autoCollapse: input.autoCollapse
-				});
-				const shouldSuspendMainToolSlot = this.activeSubagentRunIds.size === 0;
-				this.activeSubagentRunIds.add(run.id);
-				if (shouldSuspendMainToolSlot) {
-					await this.setMainToolStatusSuspended(true);
-				}
-				await this.postRunStateToActiveWebview(sessionId, run.id);
-				return run.id;
-			},
-			onProgress: async (runId, text) => {
-				const sessionId = this.activeGenerationSessionId;
-				if (!sessionId) {
-					return;
-				}
-				this.sessionStore.appendRunProgress(sessionId, runId, text);
-				await this.postRunStateToActiveWebview(sessionId, runId);
-			},
-			onToolStart: async (runId, toolName) => {
-				const sessionId = this.activeGenerationSessionId;
-				if (!sessionId) {
-					return;
-				}
-				this.sessionStore.setRunTransientToolStatus(sessionId, runId, `正在调用工具 \`${toolName}\`...`);
-				await this.postRunStateToActiveWebview(sessionId, runId);
-			},
-			onToolEnd: async (runId, toolName) => {
-				const sessionId = this.activeGenerationSessionId;
-				if (!sessionId) {
-					return;
-				}
-				this.sessionStore.clearRunTransientToolStatus(sessionId, runId);
-				await this.postRunStateToActiveWebview(sessionId, runId);
-			},
-			onAssistantDelta: async (runId, delta) => {
-				const sessionId = this.activeGenerationSessionId;
-				if (!sessionId) {
-					return;
-				}
-				this.sessionStore.appendRunAssistantDelta(sessionId, runId, delta);
-				await this.postRunStateToActiveWebview(sessionId, runId);
-			},
-			onFinish: async (runId, payload: SubagentTraceFinishPayload) => {
-				const sessionId = this.activeGenerationSessionId;
-				if (!sessionId) {
-					return;
-				}
-				this.activeSubagentRunIds.delete(runId);
-				if (this.activeSubagentRunIds.size === 0) {
-					await this.setMainToolStatusSuspended(false);
-				}
-				this.sessionStore.finishRun(sessionId, runId, {
-					elapsedText: payload.elapsedText,
-					finalAssistantText: payload.finalText
-				});
-				await this.postRunStateToActiveWebview(sessionId, runId);
-			},
-			onError: async (runId, payload: SubagentTraceErrorPayload) => {
-				const sessionId = this.activeGenerationSessionId;
-				if (!sessionId) {
-					return;
-				}
-				this.activeSubagentRunIds.delete(runId);
-				if (this.activeSubagentRunIds.size === 0) {
-					await this.setMainToolStatusSuspended(false);
-				}
-				if (payload.message.includes('用户已取消')) {
-					this.sessionStore.finishRun(sessionId, runId, {
-						status: 'cancelled',
-						elapsedText: payload.elapsedText,
-						finalAssistantText: input.cancelledFinalText || '已取消本次子任务。'
-					});
-				} else {
-					this.sessionStore.failRun(sessionId, runId, payload.message, payload.elapsedText);
-				}
-				await this.postRunStateToActiveWebview(sessionId, runId);
-			},
-			getAbortSignal: () => this.activeGenerationAbortController?.signal
-		};
+			}
+			this.subagentRunIdsByToolCallId.delete(event.data.toolCallId);
+			this.subagentToolNamesByToolCallId.delete(event.data.toolCallId);
+			this.sessionStore.clearRunTransientToolStatus(sessionId, runId);
+			await this.postRunStateToActiveWebview(sessionId, runId);
+			return;
+		}
+
+		this.subagentToolNamesByToolCallId.delete(event.data.toolCallId);
+
+		if (this.activeSubagentRunIds.size > 0) {
+			return;
+		}
+
+		await webview.postMessage({
+			type: 'chat:toolStatusDone'
+		});
+	}
+
+	private async handleSubagentStarted(
+		sessionId: string,
+		event: Extract<SessionEvent, { type: 'subagent.started' }>
+	): Promise<void> {
+		const existingRunId = this.subagentRunIdsByParentToolCallId.get(event.data.toolCallId);
+		if (existingRunId) {
+			logAgentFlow('main.extension.subagent', 'start:duplicate_ignored', {
+				sessionId,
+				runId: existingRunId,
+				toolCallId: event.data.toolCallId,
+				agentName: event.data.agentName
+			});
+			return;
+		}
+
+		const kind: ChatRun['kind'] = event.data.agentName === CODE_REVIEW_AGENT_NAME ? 'code_review' : 'subagent';
+		const run = this.sessionStore.startRun(sessionId, {
+			title: event.data.agentDisplayName || CODE_REVIEW_AGENT_DISPLAY_NAME,
+			kind
+		});
+		const shouldSuspendMainToolSlot = this.activeSubagentRunIds.size === 0;
+		this.activeSubagentRunIds.add(run.id);
+		this.subagentRunIdsByParentToolCallId.set(event.data.toolCallId, run.id);
+		if (shouldSuspendMainToolSlot) {
+			await this.setMainToolStatusSuspended(true);
+		}
+		logAgentFlow('main.extension.subagent', 'start', {
+			sessionId,
+			runId: run.id,
+			toolCallId: event.data.toolCallId,
+			agentName: event.data.agentName,
+			agentDisplayName: event.data.agentDisplayName,
+			activeSubagentRuns: this.activeSubagentRunIds.size
+		});
+		await this.postRunStateToActiveWebview(sessionId, run.id);
+	}
+
+	private async handleSubagentCompleted(
+		sessionId: string,
+		event: Extract<SessionEvent, { type: 'subagent.completed' }>
+	): Promise<void> {
+		const runId = this.subagentRunIdsByParentToolCallId.get(event.data.toolCallId);
+		if (!runId) {
+			return;
+		}
+		this.subagentRunIdsByParentToolCallId.delete(event.data.toolCallId);
+		this.activeSubagentRunIds.delete(runId);
+		if (this.activeSubagentRunIds.size === 0) {
+			await this.setMainToolStatusSuspended(false);
+		}
+		const elapsedText = this.formatElapsedText(event.data.durationMs);
+		const finalAssistantText = event.data.agentName === CODE_REVIEW_AGENT_NAME
+			? '任务评估子 agent 已完成，结论已合并到主回复。'
+			: `${event.data.agentDisplayName} 已完成，结果已合并到主回复。`;
+		logAgentFlow('main.extension.subagent', 'finish', {
+			sessionId,
+			runId,
+			toolCallId: event.data.toolCallId,
+			agentName: event.data.agentName,
+			elapsedText,
+			activeSubagentRuns: this.activeSubagentRunIds.size
+		});
+		this.sessionStore.finishRun(sessionId, runId, {
+			elapsedText,
+			finalAssistantText
+		});
+		await this.postRunStateToActiveWebview(sessionId, runId);
+	}
+
+	private async handleSubagentFailed(
+		sessionId: string,
+		event: Extract<SessionEvent, { type: 'subagent.failed' }>
+	): Promise<void> {
+		const runId = this.subagentRunIdsByParentToolCallId.get(event.data.toolCallId);
+		if (!runId) {
+			return;
+		}
+		this.subagentRunIdsByParentToolCallId.delete(event.data.toolCallId);
+		this.activeSubagentRunIds.delete(runId);
+		if (this.activeSubagentRunIds.size === 0) {
+			await this.setMainToolStatusSuspended(false);
+		}
+		const elapsedText = this.formatElapsedText(event.data.durationMs);
+		logAgentFlow('main.extension.subagent', 'error', {
+			sessionId,
+			runId,
+			toolCallId: event.data.toolCallId,
+			agentName: event.data.agentName,
+			message: event.data.error,
+			elapsedText,
+			activeSubagentRuns: this.activeSubagentRunIds.size
+		});
+		this.sessionStore.failRun(sessionId, runId, event.data.error, elapsedText);
+		await this.postRunStateToActiveWebview(sessionId, runId);
+	}
+
+	private formatElapsedText(durationMs: number | undefined): string | undefined {
+		if (!Number.isFinite(durationMs)) {
+			return undefined;
+		}
+		return `用时：${((durationMs as number) / 1000).toFixed(2)}s`;
+	}
+
+	private extractProgressFromToolResult(
+		event: Extract<SessionEvent, { type: 'tool.execution_complete' }>
+	): string | undefined {
+		const rawResult = (event.data as { result?: { content?: string; detailedContent?: string } }).result;
+		const content = (rawResult?.detailedContent ?? rawResult?.content ?? '').trim();
+		if (!content) {
+			return undefined;
+		}
+
+		try {
+			const parsed = JSON.parse(content) as { text?: string };
+			const text = (parsed.text ?? '').trim();
+			return text || undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	private async focusUserCodeRegion(sessionId: string, input: FocusCodeRegionInput): Promise<ChatFocusTarget> {
@@ -1262,7 +1421,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	private async submitFocusActionPrompt(
 		sessionId: string,
 		focusTargetIds: string[],
-		action: 'review' | 'help'
+		action: FocusAction
 	): Promise<void> {
 		const webview = this.activeWebview;
 		if (!webview) {
@@ -1281,50 +1440,13 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
-		const { preview, prompt } = this.buildFocusActionPrompt(selectedTargets, action);
+		const { preview, prompt } = buildFocusActionPrompt(selectedTargets, action);
 		this.sessionStore.appendMessage(sessionId, 'user', preview);
 		await webview.postMessage({
 			type: 'chat:externalUserMessage',
 			text: preview
 		});
 		await this.handleUserMessage(webview, prompt);
-	}
-
-	private buildFocusActionPrompt(
-		targets: ChatFocusTarget[],
-		action: 'review' | 'help'
-	): { preview: string; prompt: string } {
-		const regionLines = targets
-			.map(
-				(target, index) =>
-					`${index + 1}. [${target.id}] ${target.path}:${target.startLine}-${target.endLine}\n标题: ${target.title}\n说明: ${target.instruction || '无'}`
-			)
-			.join('\n\n');
-
-		if (action === 'review') {
-			return {
-				preview: `请 Review 我选中的 ${targets.length} 个 Focus 区域。`,
-				prompt:
-					'请针对我选中的 focus 区域进行 Review，分析我的任务完成情况、潜在问题，以及最合理的下一步。\n\n选中的区域如下：\n' +
-					regionLines
-			};
-		}
-
-		if (action === 'help') {
-			return {
-				preview: `请 Help 我处理选中的 ${targets.length} 个 Focus 区域。`,
-				prompt:
-					'请帮助我处理下面选中的 focus 区域。解释这些区域各自要改什么、推荐的落笔顺序、关键判断条件和容易出错的地方。\n\n选中的区域如下：\n' +
-					regionLines
-			};
-		}
-
-		return {
-			preview: `请 Review 我选中的 ${targets.length} 个 Focus 区域。`,
-			prompt:
-				'请针对我选中的 focus 区域进行 Review，分析我的任务完成情况、潜在问题，以及最合理的下一步。\n\n选中的区域如下：\n' +
-				regionLines
-		};
 	}
 
 	private getWorkspaceRoot(): string | undefined {

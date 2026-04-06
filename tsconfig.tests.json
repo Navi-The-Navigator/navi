@@ -1,0 +1,22 @@
+{
+	"extends": "./tsconfig.json",
+	"include": [
+		"src/agent/**/*.ts",
+		"src/chat/**/*.ts",
+		"src/mcp/**/*.ts",
+		"src/settings/**/*.ts",
+		"src/test/**/*.ts",
+		"src/types/**/*.ts",
+		"src/utils/**/*.ts",
+		"src/webview/*Html.ts"
+	],
+	"exclude": [
+		"src/webview/sidebarApp.ts",
+		"src/webview/focusApp.ts"
+	],
+	"compilerOptions": {
+		"module": "CommonJS",
+		"moduleResolution": "node",
+		"outDir": "out"
+	}
+}

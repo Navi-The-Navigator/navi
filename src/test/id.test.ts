@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { createThreadId, getNonce } from '../utils/id';
+import { createThreadId, getNonce } from '../utils/id.js';
 
 suite('id utilities', () => {
 	test('creates thread ids with the expected prefix', () => {

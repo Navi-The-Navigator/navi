@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { createProjectStructureTool } from '../agent/tools/projectStructureTool';
+import { createProjectStructureTool } from '../agent/tools/projectStructureTool.js';
 
 suite('createProjectStructureTool', () => {
 	test('returns project tree for workspace directory', async () => {
@@ -13,7 +13,7 @@ suite('createProjectStructureTool', () => {
 
 		try {
 			const tool = createProjectStructureTool(() => workspaceRoot);
-			const result = await tool.invoke('{"maxDepth":3}');
+			const result = await tool.func('{"maxDepth":3}');
 			const payload = JSON.parse(result) as {
 				error?: string;
 				tree: string;
@@ -39,7 +39,7 @@ suite('createProjectStructureTool', () => {
 
 		try {
 			const tool = createProjectStructureTool(() => workspaceRoot);
-			const result = await tool.invoke('{"path":"../"}');
+			const result = await tool.func('{"path":"../"}');
 			const payload = JSON.parse(result) as { error?: string };
 
 			assert.strictEqual(payload.error, 'Path is outside the workspace.');

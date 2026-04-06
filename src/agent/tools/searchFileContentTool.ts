@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { DynamicTool } from '@langchain/core/tools';
 import * as vscode from 'vscode';
+import type { NaviTool } from '../naviTool';
 
 type WorkspaceRootResolver = () => string | undefined;
 
@@ -21,12 +21,12 @@ const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist', 'out']);
 
 export function createSearchFileContentTool(
 	resolveWorkspaceRoot: WorkspaceRootResolver = getWorkspaceRoot
-): DynamicTool {
-	return new DynamicTool({
+): NaviTool {
+	return {
 		name: 'search_file_content',
 		description:
 			'Search text inside workspace files. Input can be plain text query or JSON: {"query":"ping","path":"src","maxResults":40,"maxMatchesPerFile":5,"caseSensitive":false}.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const workspaceRoot = resolveWorkspaceRoot();
 			if (!workspaceRoot) {
 				return errorResult('No workspace folder is open.');
@@ -126,7 +126,7 @@ export function createSearchFileContentTool(
 				2
 			);
 		}
-	});
+	};
 }
 
 function getWorkspaceRoot(): string | undefined {

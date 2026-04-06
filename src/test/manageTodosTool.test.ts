@@ -1,6 +1,6 @@
 import * as assert from 'assert';
-import { createManageTodosTool } from '../agent/tools/manageTodosTool';
-import { ChatSessionStore } from '../chat/sessionStore';
+import { createManageTodosTool } from '../agent/tools/manageTodosTool.js';
+import { ChatSessionStore } from '../chat/sessionStore.js';
 
 suite('createManageTodosTool', () => {
 	test('adds and completes todos via tool actions', async () => {
@@ -21,7 +21,7 @@ suite('createManageTodosTool', () => {
 			}
 		});
 
-		const added = JSON.parse(await tool.invoke('{"action":"add","text":"prepare migration plan"}')) as {
+		const added = JSON.parse(await tool.func('{"action":"add","text":"prepare migration plan"}')) as {
 			ok: boolean;
 			todos: Array<{ id: string; completed: boolean }>;
 		};
@@ -30,7 +30,7 @@ suite('createManageTodosTool', () => {
 		assert.strictEqual(onChangedCount, 1);
 
 		const todoId = added.todos[0].id;
-		const completed = JSON.parse(await tool.invoke(`{"action":"complete","id":"${todoId}"}`)) as {
+		const completed = JSON.parse(await tool.func(`{"action":"complete","id":"${todoId}"}`)) as {
 			ok: boolean;
 			todos: Array<{ id: string; completed: boolean }>;
 		};
@@ -56,7 +56,7 @@ suite('createManageTodosTool', () => {
 			replaceTodos: (id, todos) => store.replaceTodos(id, todos)
 		});
 
-		const deleted = JSON.parse(await tool.invoke('{"action":"delete","index":1}')) as {
+		const deleted = JSON.parse(await tool.func('{"action":"delete","index":1}')) as {
 			ok: boolean;
 			todos: Array<{ text: string }>;
 		};
@@ -64,7 +64,7 @@ suite('createManageTodosTool', () => {
 		assert.strictEqual(deleted.todos.length, 1);
 		assert.strictEqual(deleted.todos[0].text, 'second');
 
-		const listed = JSON.parse(await tool.invoke('{"action":"list"}')) as {
+		const listed = JSON.parse(await tool.func('{"action":"list"}')) as {
 			ok: boolean;
 			todos: Array<{ text: string }>;
 		};

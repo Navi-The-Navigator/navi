@@ -1,6 +1,6 @@
 import * as path from 'path';
-import { DynamicTool } from '@langchain/core/tools';
 import * as vscode from 'vscode';
+import type { NaviTool } from '../naviTool';
 
 type WorkspaceRootResolver = () => string | undefined;
 
@@ -22,12 +22,12 @@ const DEFAULT_MAX_RESULTS = 100;
 export function createGetWorkspaceErrorsTool(
 	resolveWorkspaceRoot: WorkspaceRootResolver = getWorkspaceRoot,
 	getDiagnostics: DiagnosticsProvider = () => vscode.languages.getDiagnostics()
-): DynamicTool {
-	return new DynamicTool({
+): NaviTool {
+	return {
 		name: 'get_workspace_errors',
 		description:
 			'Read current workspace diagnostics. Defaults to errors only. Input can be empty, a plain path string, or JSON like {"paths":["src/extension.ts"],"includeWarnings":true,"maxResults":100}.',
-		func: async (rawInput) => {
+		func: async (rawInput: string) => {
 			const workspaceRoot = resolveWorkspaceRoot();
 			if (!workspaceRoot) {
 				return errorResult('No workspace folder is open.');
@@ -83,7 +83,7 @@ export function createGetWorkspaceErrorsTool(
 				2
 			);
 		}
-	});
+	};
 }
 
 function getWorkspaceRoot(): string | undefined {
