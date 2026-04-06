@@ -1,17 +1,17 @@
 import type { ChatFocusTarget, ChatTodo } from '../types/chat';
-import { createMainCustomAgents } from './agents/customAgents';
-import { NaviChatGateway } from './chatGateway';
-import { createClearFocusCodeRegionTool, type ClearFocusCodeRegionInput } from './tools/clearFocusCodeRegionTool';
-import { createDateTimeTool } from './tools/dateTimeTool';
-import { createFocusCodeRegionTool, type FocusCodeRegionInput } from './tools/focusCodeRegionTool';
-import { createGetFocusCodeRegionsTool, type GetFocusCodeRegionsInput } from './tools/getFocusCodeRegionsTool';
-import { createGetWorkspaceErrorsTool } from './tools/getWorkspaceErrorsTool';
-import { createManageTodosTool } from './tools/manageTodosTool';
-import { createProjectStructureTool } from './tools/projectStructureTool';
-import { createReadFileTool } from './tools/readFileTool';
-import { createSearchFileContentTool } from './tools/searchFileContentTool';
-import { createSearchFilesTool } from './tools/searchFilesTool';
-import { createUpdateProgressTool } from './tools/updateProgressTool';
+import { createMainCustomAgents } from './agents/customAgents.js';
+import { NaviChatGateway } from './chatGateway.js';
+import { createClearFocusCodeRegionTool, type ClearFocusCodeRegionInput } from './tools/clearFocusCodeRegionTool.js';
+import { createDateTimeTool } from './tools/dateTimeTool.js';
+import { createFocusCodeRegionTool, type FocusCodeRegionInput } from './tools/focusCodeRegionTool.js';
+import { createGetFocusCodeRegionsTool, type GetFocusCodeRegionsInput } from './tools/getFocusCodeRegionsTool.js';
+import { createGetWorkspaceErrorsTool } from './tools/getWorkspaceErrorsTool.js';
+import { createManageTodosTool } from './tools/manageTodosTool.js';
+import { createProjectStructureTool } from './tools/projectStructureTool.js';
+import { createReadFileTool } from './tools/readFileTool.js';
+import { createSearchFileContentTool } from './tools/searchFileContentTool.js';
+import { createSearchFilesTool } from './tools/searchFilesTool.js';
+import { createUpdateProgressTool } from './tools/updateProgressTool.js';
 
 type ClearFocusCodeRegionResult = {
 	removedCount: number;

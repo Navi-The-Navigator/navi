@@ -1,5 +1,5 @@
 import type { CustomAgentConfig } from '@github/copilot-sdk';
-import { CODE_REVIEW_AGENT_SYSTEM_PROMPT } from './config';
+import { CODE_REVIEW_AGENT_SYSTEM_PROMPT } from './config.js';
 
 export const CODE_REVIEW_AGENT_NAME = 'code_review_agent';
 export const CODE_REVIEW_AGENT_DISPLAY_NAME = 'Task Assessment Agent';

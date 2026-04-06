@@ -2,19 +2,19 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { SessionEvent } from '@github/copilot-sdk';
 import type { NaviChatGateway } from './agent/chatGateway';
-import { CODE_REVIEW_AGENT_DISPLAY_NAME, CODE_REVIEW_AGENT_NAME } from './agent/agents/customAgents';
-import { buildFocusActionPrompt, type FocusAction } from './agent/config';
-import { logAgentFlow, summarizeText } from './agent/debugLogger';
-import { createMainChatGateway } from './agent/mainAgent';
+import { CODE_REVIEW_AGENT_DISPLAY_NAME, CODE_REVIEW_AGENT_NAME } from './agent/agents/customAgents.js';
+import { buildFocusActionPrompt, type FocusAction } from './agent/config.js';
+import { logAgentFlow, summarizeText } from './agent/debugLogger.js';
+import { createMainChatGateway } from './agent/mainAgent.js';
 import type { ClearFocusCodeRegionInput } from './agent/tools/clearFocusCodeRegionTool';
 import type { FocusCodeRegionInput } from './agent/tools/focusCodeRegionTool';
 import type { GetFocusCodeRegionsInput } from './agent/tools/getFocusCodeRegionsTool';
-import { ChatSessionStore } from './chat/sessionStore';
-import { SettingsManager } from './settings/settingsManager';
+import { ChatSessionStore } from './chat/sessionStore.js';
+import { SettingsManager } from './settings/settingsManager.js';
 import type { ChatFocusTarget, ChatInboundMessage, ChatRun } from './types/chat';
-import { createFocusTargetId } from './utils/id';
-import { getFocusHtml } from './webview/focusHtml';
-import { getSidebarHtml } from './webview/sidebarHtml';
+import { createFocusTargetId } from './utils/id.js';
+import { getFocusHtml } from './webview/focusHtml.js';
+import { getSidebarHtml } from './webview/sidebarHtml.js';
 
 class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'navi.sidebarWebview';

@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { CopilotClient, CopilotSession, approveAll } from '@github/copilot-sdk';
 import type { Tool, MCPServerConfig, SessionEvent, CustomAgentConfig } from '@github/copilot-sdk';
-import { SYSTEM_PROMPT } from './config';
-import { logAgentFlow, summarizeText } from './debugLogger';
-import { createCopilotClient, resolveModel, resolveProvider, resolveStreaming } from './modelFactory';
+import { SYSTEM_PROMPT } from './config.js';
+import { logAgentFlow, summarizeText } from './debugLogger.js';
+import { createCopilotClient, resolveModel, resolveProvider, resolveStreaming } from './modelFactory.js';
 import type { NaviTool } from './naviTool';
-import { parseMcpServerSettings, toEnabledMcpConnections } from '../mcp/config';
+import { parseMcpServerSettings, toEnabledMcpConnections } from '../mcp/config.js';
 import type { RenderableMessage } from '../types/chat';
 const DEFAULT_STREAM_RETRY_LIMIT = 1;
 

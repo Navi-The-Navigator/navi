@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { McpSettingsManager } from '../mcp/settingsManager';
+import { McpSettingsManager } from '../mcp/settingsManager.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4.1';

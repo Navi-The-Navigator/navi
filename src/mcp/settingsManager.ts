@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { type McpServerEntry, type McpServerSettings, readMcpServerSettings, writeMcpServerSettings } from './config';
+import { type McpServerEntry, type McpServerSettings, readMcpServerSettings, writeMcpServerSettings } from './config.js';
 
 export class McpSettingsManager {
 	private getConfig(): vscode.WorkspaceConfiguration {

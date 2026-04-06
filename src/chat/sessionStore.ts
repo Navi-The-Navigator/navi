@@ -1,4 +1,4 @@
-import { createThreadId, createTodoId } from '../utils/id';
+import { createThreadId, createTodoId } from '../utils/id.js';
 import type {
 	ChatRun,
 	ChatRunEvent,
