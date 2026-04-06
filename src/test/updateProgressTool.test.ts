@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { createUpdateProgressTool } from '../agent/tools/updateProgressTool';
+import { createUpdateProgressTool } from '../agent/tools/updateProgressTool.js';
 
 suite('createUpdateProgressTool', () => {
 	test('posts plain text progress update', async () => {

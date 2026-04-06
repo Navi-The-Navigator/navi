@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { createGetWorkspaceErrorsTool } from '../agent/tools/getWorkspaceErrorsTool';
+import { createGetWorkspaceErrorsTool } from '../agent/tools/getWorkspaceErrorsTool.js';
 
 suite('createGetWorkspaceErrorsTool', () => {
 	test('returns workspace errors and filters out warnings by default', async () => {

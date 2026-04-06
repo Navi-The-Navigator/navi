@@ -1,6 +1,6 @@
 import * as assert from 'assert';
-import { createManageTodosTool } from '../agent/tools/manageTodosTool';
-import { ChatSessionStore } from '../chat/sessionStore';
+import { createManageTodosTool } from '../agent/tools/manageTodosTool.js';
+import { ChatSessionStore } from '../chat/sessionStore.js';
 
 suite('createManageTodosTool', () => {
 	test('adds and completes todos via tool actions', async () => {

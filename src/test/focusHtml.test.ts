@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { getFocusHtml } from '../webview/focusHtml';
+import { getFocusHtml } from '../webview/focusHtml.js';
 
 suite('getFocusHtml', () => {
 	test('renders standalone focus webview shell and actions', () => {

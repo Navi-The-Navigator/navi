@@ -275,16 +275,17 @@ function resolveNativeCopilotCliPathInVsCodeHost(debug: boolean): { path?: strin
 		dir = parent;
 	}
 
-	// 2) Resolve relative to @github/copilot package location (same scope folder sibling).
+	// 2) Resolve relative to @github/copilot-sdk package location (same scope folder sibling).
 	try {
 		const requireFn = createRequire(__filename);
-		const copilotPkg = requireFn.resolve('@github/copilot/package.json');
-		const scopeDir = dirname(dirname(copilotPkg));
+		const copilotSdkEntry = requireFn.resolve('@github/copilot-sdk');
+		const copilotSdkPackageDir = findPackageDir(copilotSdkEntry);
+		const scopeDir = dirname(copilotSdkPackageDir);
 		const sibling = join(scopeDir, packageName.split('/')[1], binName);
 		tried.push(sibling);
 		if (existsSync(sibling)) {
 			if (debug) {
-				cliDebugOutput.appendLine(`[resolve-cli] Resolved via @github/copilot sibling package: ${sibling}`);
+				cliDebugOutput.appendLine(`[resolve-cli] Resolved via @github/copilot-sdk sibling package: ${sibling}`);
 			}
 			return { path: sibling, tried };
 		}
@@ -301,6 +302,21 @@ function resolveNativeCopilotCliPathInVsCodeHost(debug: boolean): { path?: strin
 	}
 
 	return { path: undefined, tried };
+}
+
+function findPackageDir(resolvedEntryPath: string): string {
+	let dir = dirname(resolvedEntryPath);
+	for (let i = 0; i < 8; i += 1) {
+		if (existsSync(join(dir, 'package.json'))) {
+			return dir;
+		}
+		const parent = dirname(dir);
+		if (parent === dir) {
+			break;
+		}
+		dir = parent;
+	}
+	throw new Error(`Unable to locate package.json for resolved entry: ${resolvedEntryPath}`);
 }
 
 function maybeWarnCliPathNotResolved(tried: string[]): void {

@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { createSearchFilesTool } from '../agent/tools/searchFilesTool';
+import { createSearchFilesTool } from '../agent/tools/searchFilesTool.js';
 
 suite('createSearchFilesTool', () => {
 	test('finds files and directories by query', async () => {

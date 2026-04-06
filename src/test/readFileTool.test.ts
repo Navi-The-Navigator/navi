@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { createReadFileTool } from '../agent/tools/readFileTool';
+import { createReadFileTool } from '../agent/tools/readFileTool.js';
 
 suite('createReadFileTool', () => {
 	test('reads selected line window with line numbers', async () => {
