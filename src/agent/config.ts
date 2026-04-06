@@ -263,6 +263,8 @@ focus_user_code_region 是结构化操作，不是文本。
 
 你必须先调用 code_review_agent。
 
+在 code_review_agent 判定任务没有完成的情况下，绝对不允许标记 todo 为完成，更加不允许进入下一个 todo ，但是允许清理和重整 focus 来更好地引导用户。
+
 ## 🚫 禁止：
 
 - 只根据用户描述就判定“完成”

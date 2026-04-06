@@ -145,7 +145,7 @@ function normalizeOptionalInteger(value: number | undefined): number | undefined
 }
 
 function buildReviewPrompt(request: string, paths: string[], focusRegions: CodeReviewFocusRegion[]): string {
-	const sections = [`用户希望你评估的任务：\n${request}`];
+	const sections = [`你需要评估的任务：\n${request}`];
 
 	if (paths.length > 0) {
 		sections.push(`建议优先核对的路径：\n${paths.map((item) => `- ${item}`).join('\n')}`);
@@ -153,7 +153,7 @@ function buildReviewPrompt(request: string, paths: string[], focusRegions: CodeR
 
 	if (focusRegions.length > 0) {
 		sections.push(
-			`用户显式标记的重点区域：\n${focusRegions
+			`用户被提示的 Focus Region：\n${focusRegions
 				.map((region, index) => {
 					const lineRange = formatLineRange(region.startLine, region.endLine);
 					const title = region.title ? `\n标题: ${region.title}` : '';
@@ -166,8 +166,8 @@ function buildReviewPrompt(request: string, paths: string[], focusRegions: CodeR
 
 	sections.push(
 		[
-			'请先确认用户要达成的结果，再沿着相关代码、配置、测试、集成点和工作区诊断收集证据。必要时使用 read_project_structure、search_files、search_file_content、read_file、get_workspace_errors。',
-			'你的重点是判断：这个任务是否真的完成、完成到什么程度、还缺什么、哪里可能出问题。',
+			'请先确认要达成的结果，再沿着相关代码、配置、测试、集成点和工作区诊断收集证据。必要时使用 read_project_structure、search_files、search_file_content、read_file、get_workspace_errors。',
+			'你的重点是判断：这个任务是否真的完成、完成到什么程度、还缺什么（在给定的任务范围内）、哪里可能出问题。',
 			'如果证据不足，不要硬下结论，直接给出“无法判断”并说明缺失的证据。',
 			'最终输出必须严格包含这些标题：结论、概述、已完成的证据、待补充或潜在问题、验证与后续建议。'
 		].join('\n')
