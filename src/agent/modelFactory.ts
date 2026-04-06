@@ -4,8 +4,8 @@ import type { CopilotClientOptions, SessionConfig } from '@github/copilot-sdk';
 
 export type AuthMode = 'copilot' | 'byok';
 
-export const DEFAULT_API_BASE_URL = 'https://api.deepseek.com/v1';
-export const DEFAULT_MODEL = 'deepseek-reasoner';
+export const DEFAULT_API_BASE_URL = 'https://api.openai.com/v1';
+export const DEFAULT_MODEL = 'gpt-4.1';
 export const DEFAULT_RECURSION_LIMIT = 150;
 
 /**
@@ -69,42 +69,22 @@ export function resolveAuthMode(config: vscode.WorkspaceConfiguration): AuthMode
 }
 
 export function resolveApiKey(config: vscode.WorkspaceConfiguration): string {
-	// New generic setting
 	const configuredApiKey = (config.get<string>('apiKey') ?? '').trim();
 	if (configuredApiKey) {
 		return configuredApiKey;
 	}
 
-	// Legacy setting (backwards-compatible)
-	const legacyApiKey = (config.get<string>('deepseekApiKey') ?? '').trim();
-	if (legacyApiKey) {
-		return legacyApiKey;
-	}
-
-	// Environment variables (new → legacy)
-	return (process.env.NAVI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? '').trim();
+	return (process.env.NAVI_API_KEY ?? '').trim();
 }
 
 export function resolveBaseUrl(config: vscode.WorkspaceConfiguration): string {
 	const configuredBaseUrl = (config.get<string>('apiBaseUrl', DEFAULT_API_BASE_URL) ?? '').trim();
-	if (configuredBaseUrl) {
-		return configuredBaseUrl;
-	}
-
-	// Legacy setting
-	const legacyBaseUrl = (config.get<string>('deepseekBaseUrl', DEFAULT_API_BASE_URL) ?? '').trim();
-	return legacyBaseUrl || DEFAULT_API_BASE_URL;
+	return configuredBaseUrl || DEFAULT_API_BASE_URL;
 }
 
 export function resolveModel(config: vscode.WorkspaceConfiguration): string {
 	const configuredModel = (config.get<string>('model', DEFAULT_MODEL) ?? '').trim();
-	if (configuredModel) {
-		return configuredModel;
-	}
-
-	// Legacy setting
-	const legacyModel = (config.get<string>('deepseekModel', DEFAULT_MODEL) ?? '').trim();
-	return legacyModel || DEFAULT_MODEL;
+	return configuredModel || DEFAULT_MODEL;
 }
 
 export function resolveTemperature(config: vscode.WorkspaceConfiguration, override?: number): number | undefined {

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { DeepSeekChatGateway } from './agent/chatGateway';
+import { NaviChatGateway } from './agent/chatGateway';
 import {
 	createClearFocusCodeRegionTool,
 	type ClearFocusCodeRegionInput
@@ -41,7 +41,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	public static readonly focusNextCommand = 'navi.focusNext';
 
 	private readonly sessionStore = new ChatSessionStore();
-	private readonly gateway: DeepSeekChatGateway;
+	private readonly gateway: NaviChatGateway;
 	private readonly settingsManager = new SettingsManager();
 	private readonly focusTargetsBySessionId = new Map<string, ChatFocusTarget[]>();
 	private readonly activeFocusIndexBySessionId = new Map<string, number>();
@@ -112,7 +112,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		);
 		this.updateFocusSwitcherStatusBar();
 
-		this.gateway = new DeepSeekChatGateway([
+		this.gateway = new NaviChatGateway([
 			createDateTimeTool(),
 			createProjectStructureTool(),
 			createReadFileTool(),
@@ -532,8 +532,8 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 				});
 				return;
 			}
-			this.sessionStore.setAssistantError(sessionId, `请求 DeepSeek 失败：${messageText}`);
-			await this.postError(webview, `请求 DeepSeek 失败：${messageText}`);
+			this.sessionStore.setAssistantError(sessionId, `请求 LLM 失败：${messageText}`);
+			await this.postError(webview, `请求 LLM 失败：${messageText}`);
 		} finally {
 			this.sessionStore.finishAssistantReply(sessionId);
 			if (shouldPersistElapsed && elapsedText) {
@@ -561,12 +561,12 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		// BYOK mode: require an API key
-		const configuredApiKey = (config.get<string>('apiKey') ?? config.get<string>('deepseekApiKey') ?? '').trim();
+		const configuredApiKey = (config.get<string>('apiKey') ?? '').trim();
 		if (configuredApiKey) {
 			return true;
 		}
 
-		const envApiKey = (process.env.NAVI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? '').trim();
+		const envApiKey = (process.env.NAVI_API_KEY ?? '').trim();
 		if (envApiKey) {
 			const hasConfirmedEnvApiKey = this.globalState.get<boolean>(
 				NaviSidebarViewProvider.envApiKeyConfirmedStateKey,
@@ -632,9 +632,6 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			event.affectsConfiguration('navi.apiKey') ||
 			event.affectsConfiguration('navi.apiBaseUrl') ||
 			event.affectsConfiguration('navi.model') ||
-			event.affectsConfiguration('navi.deepseekApiKey') ||
-			event.affectsConfiguration('navi.deepseekBaseUrl') ||
-			event.affectsConfiguration('navi.deepseekModel') ||
 			event.affectsConfiguration('navi.temperature') ||
 			event.affectsConfiguration('navi.mcpEnabled') ||
 			event.affectsConfiguration('navi.mcpServersJson')

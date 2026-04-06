@@ -22,7 +22,7 @@ type StoredMessage = {
 	text: string;
 };
 
-export class DeepSeekChatGateway {
+export class NaviChatGateway {
 	private client?: CopilotClient;
 	private sessionMap = new Map<string, CopilotSession>();
 	private clientInitPromise?: Promise<CopilotClient>;

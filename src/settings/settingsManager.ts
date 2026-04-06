@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import { McpSettingsManager } from '../mcp/settingsManager';
 
-const DEFAULT_API_BASE_URL = 'https://api.deepseek.com/v1';
-const DEFAULT_MODEL = 'deepseek-reasoner';
+const DEFAULT_API_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_MODEL = 'gpt-4.1';
 
 export class SettingsManager {
 	private readonly mcpSettingsManager = new McpSettingsManager();
@@ -305,11 +305,11 @@ export class SettingsManager {
 	}
 
 	private getConfiguredApiKey(config: vscode.WorkspaceConfiguration): string {
-		return (config.get<string>('apiKey') ?? config.get<string>('deepseekApiKey') ?? '').trim();
+		return (config.get<string>('apiKey') ?? '').trim();
 	}
 
 	private getEnvApiKey(): string {
-		return (process.env.NAVI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? '').trim();
+		return (process.env.NAVI_API_KEY ?? '').trim();
 	}
 
 	private describeKeySource(config: vscode.WorkspaceConfiguration): string {
@@ -323,12 +323,12 @@ export class SettingsManager {
 	}
 
 	private getConfiguredBaseUrl(config: vscode.WorkspaceConfiguration): string {
-		const value = (config.get<string>('apiBaseUrl') ?? config.get<string>('deepseekBaseUrl', DEFAULT_API_BASE_URL) ?? DEFAULT_API_BASE_URL).trim();
+		const value = (config.get<string>('apiBaseUrl', DEFAULT_API_BASE_URL) ?? DEFAULT_API_BASE_URL).trim();
 		return value || DEFAULT_API_BASE_URL;
 	}
 
 	private getConfiguredModel(config: vscode.WorkspaceConfiguration): string {
-		const value = (config.get<string>('model') ?? config.get<string>('deepseekModel', DEFAULT_MODEL) ?? DEFAULT_MODEL).trim();
+		const value = (config.get<string>('model', DEFAULT_MODEL) ?? DEFAULT_MODEL).trim();
 		return value || DEFAULT_MODEL;
 	}
 
