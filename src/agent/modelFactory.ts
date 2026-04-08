@@ -11,7 +11,7 @@ let hasShownCliPathWarning = false;
 export type AuthMode = 'copilot' | 'byok';
 
 export const DEFAULT_API_BASE_URL = 'https://api.openai.com/v1';
-export const DEFAULT_MODEL = 'gpt-4.1';
+export const DEFAULT_MODEL = 'gpt-5-mini';
 export const DEFAULT_RECURSION_LIMIT = 150;
 export const DEFAULT_STREAMING_ENABLED = true;
 
@@ -28,6 +28,7 @@ export async function createCopilotClient(
 ): Promise<CopilotClient> {
 	const authMode = resolveAuthMode(config);
 	const debugCliArgs = config.get<boolean>('debugCopilotCliArgs', false);
+	const workspaceCwd = getActiveWorkspaceRoot();
 	const configuredCliPathRaw = (config.get<string>('copilotCliPath') ?? '').trim();
 	const configuredCliPath = configuredCliPathRaw && existsSync(configuredCliPathRaw) ? configuredCliPathRaw : undefined;
 	const resolvedCli = resolveNativeCopilotCliPathInVsCodeHost(debugCliArgs);
@@ -43,6 +44,7 @@ export async function createCopilotClient(
 		const githubToken = await acquireGitHubToken();
 		const options: CopilotClientOptions = {
 			cliPath,
+			cwd: workspaceCwd,
 			useLoggedInUser: !githubToken,
 			githubToken,
 			logLevel: 'error'
@@ -57,6 +59,7 @@ export async function createCopilotClient(
 	// BYOK – no GitHub auth required
 	const options: CopilotClientOptions = {
 		cliPath,
+		cwd: workspaceCwd,
 		useLoggedInUser: false,
 		logLevel: 'error'
 	};
@@ -166,6 +169,7 @@ async function acquireGitHubToken(): Promise<string | undefined> {
 type RuntimeClientOptions = {
 	cliPath?: string;
 	cliArgs?: string[];
+	cwd?: string;
 	useStdio?: boolean;
 	port?: number;
 	logLevel?: string;
@@ -177,6 +181,7 @@ function logCopilotCliLaunch(client: CopilotClient, requestedOptions: CopilotCli
 	const runtimeOptions = ((client as unknown as { options?: RuntimeClientOptions }).options ?? {}) as RuntimeClientOptions;
 	const cliPath = runtimeOptions.cliPath ?? requestedOptions.cliPath ?? '<unknown-cli-path>';
 	const cliArgs = Array.isArray(runtimeOptions.cliArgs) ? runtimeOptions.cliArgs : (requestedOptions.cliArgs ?? []);
+	const cwd = runtimeOptions.cwd ?? requestedOptions.cwd ?? process.cwd();
 	const logLevel = runtimeOptions.logLevel ?? requestedOptions.logLevel ?? 'debug';
 	const useStdio = runtimeOptions.useStdio ?? (requestedOptions.useStdio ?? true);
 	const port = runtimeOptions.port ?? requestedOptions.port ?? 0;
@@ -216,6 +221,7 @@ function logCopilotCliLaunch(client: CopilotClient, requestedOptions: CopilotCli
 
 	cliDebugOutput.appendLine(`[${new Date().toISOString()}] Copilot CLI launch preview`);
 	cliDebugOutput.appendLine(`cliPath: ${cliPath}`);
+	cliDebugOutput.appendLine(`cwd: ${cwd}`);
 	cliDebugOutput.appendLine(`process.execPath: ${process.execPath}`);
 	cliDebugOutput.appendLine(`argv(json): ${JSON.stringify(argv)}`);
 	cliDebugOutput.appendLine(`command(pretty): ${commandParts.map(formatArg).join(' ')}`);
@@ -224,6 +230,10 @@ function logCopilotCliLaunch(client: CopilotClient, requestedOptions: CopilotCli
 	);
 	cliDebugOutput.appendLine('---');
 	cliDebugOutput.show(true);
+}
+
+function getActiveWorkspaceRoot(): string | undefined {
+	return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
 function resolveNativeCopilotCliPathInVsCodeHost(debug: boolean): { path?: string; tried: string[] } {

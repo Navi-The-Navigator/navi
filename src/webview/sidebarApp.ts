@@ -220,6 +220,8 @@ const runPanelProgressFinalizeTimeouts = new Map<string, ReturnType<typeof setTi
 const runPanelToolStatusHideTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 const runPanelToolStatusClearModes = new Map<string, 'keep' | 'hide'>();
 const runPanelAutoScrollSuppressed = new Set<string>();
+const renderedRunStates = new Map<string, ChatRun>();
+let runPanelClockInterval: ReturnType<typeof setInterval> | null = null;
 
 function requireElement<T extends Element>(selector: string): T {
 	const element = document.querySelector<T>(selector);
@@ -432,6 +434,30 @@ function appendMessage(role: ChatRole, text: string, smoothScrollToBottom = fals
 	return el;
 }
 
+function appendWelcomeMessage(): void {
+	const el = appendMessage('assistant', DEFAULT_WELCOME_MESSAGE);
+	el.dataset.welcomeMessage = 'true';
+}
+
+function removeWelcomeMessage(): void {
+	const messages = chatBody.querySelectorAll<HTMLDivElement>('.message.assistant');
+	messages.forEach((node) => {
+		if (node.dataset.welcomeMessage === 'true') {
+			node.remove();
+			return;
+		}
+		const raw = (node.dataset.rawMarkdown || '').trim();
+		if (raw && raw === DEFAULT_WELCOME_MESSAGE) {
+			node.remove();
+			return;
+		}
+		const text = (node.textContent || '').trim();
+		if (text === DEFAULT_WELCOME_MESSAGE) {
+			node.remove();
+		}
+	});
+}
+
 function autoResizePrompt(): void {
 	promptInput.style.height = 'auto';
 	const maxHeight = 120;
@@ -516,11 +542,16 @@ function resetChat(): void {
 	});
 	runPanelToolStatusHideTimeouts.clear();
 	runPanelAutoScrollSuppressed.clear();
+	renderedRunStates.clear();
+	if (runPanelClockInterval) {
+		clearInterval(runPanelClockInterval);
+		runPanelClockInterval = null;
+	}
 	activeProgressRunId = 0;
 	assistantSentDelta = false;
 	cancellationInFlight = false;
 	transientToolStatusEl = null;
-	appendMessage('assistant', DEFAULT_WELCOME_MESSAGE);
+	appendWelcomeMessage();
 	activeAssistantMessage = null;
 	setLoading(false);
 }
@@ -536,6 +567,83 @@ function getRunStatusLabel(status: ChatRunStatus): string {
 		return '已取消';
 	}
 	return '失败';
+}
+
+function normalizeElapsedFallback(text: string): string {
+	const normalized = (text || '').trim();
+	if (!normalized) {
+		return '';
+	}
+	const matchedSeconds = normalized.match(/([0-9]+(?:\.[0-9]+)?)/);
+	if (matchedSeconds?.[1]) {
+		return `${matchedSeconds[1]} 秒`;
+	}
+	return normalized;
+}
+
+function formatRunDurationSeconds(durationMs: number, includeFraction: boolean): string {
+	const safeDurationMs = Math.max(0, durationMs);
+	const seconds = safeDurationMs / 1000;
+	if (!includeFraction) {
+		return `${Math.floor(seconds)} 秒`;
+	}
+	const precision = seconds < 10 ? 2 : seconds < 60 ? 1 : 0;
+	return `${Number(seconds.toFixed(precision)).toString()} 秒`;
+}
+
+function getRunDurationLabel(run: ChatRun, now = Date.now()): string {
+	if (!Number.isFinite(run.startedAt)) {
+		return run.status === 'running' ? '' : normalizeElapsedFallback(run.elapsedText || '');
+	}
+	if (run.status === 'running') {
+		return `已运行 ${formatRunDurationSeconds(now - run.startedAt, false)}`;
+	}
+	const endedAt = Number.isFinite(run.endedAt) ? (run.endedAt as number) : now;
+	return `总用时 ${formatRunDurationSeconds(endedAt - run.startedAt, true)}`;
+}
+
+function getRunMetaText(run: ChatRun, now = Date.now()): string {
+	return [getRunStatusLabel(run.status), getRunDurationLabel(run, now)].filter(Boolean).join(' · ');
+}
+
+function refreshRunningRunPanelMeta(): void {
+	let hasRunningRun = false;
+	const now = Date.now();
+	renderedRunStates.forEach((run, runId) => {
+		if (run.status !== 'running') {
+			return;
+		}
+		hasRunningRun = true;
+		const panel = runPanelEls.get(runId);
+		if (!panel?.isConnected) {
+			return;
+		}
+		const meta = panel.querySelector<HTMLDivElement>('.run-panel-meta');
+		if (meta) {
+			meta.textContent = getRunMetaText(run, now);
+		}
+	});
+	if (!hasRunningRun && runPanelClockInterval) {
+		clearInterval(runPanelClockInterval);
+		runPanelClockInterval = null;
+	}
+}
+
+function syncRunPanelClock(): void {
+	const hasRunningRun = Array.from(renderedRunStates.values()).some((run) => run.status === 'running');
+	if (hasRunningRun) {
+		if (!runPanelClockInterval) {
+			runPanelClockInterval = setInterval(() => {
+				refreshRunningRunPanelMeta();
+			}, 1000);
+		}
+		refreshRunningRunPanelMeta();
+		return;
+	}
+	if (runPanelClockInterval) {
+		clearInterval(runPanelClockInterval);
+		runPanelClockInterval = null;
+	}
 }
 
 function findRunInsertionAnchor(runId: string): Element {
@@ -585,9 +693,10 @@ function setRunPanelCollapsed(panel: HTMLDivElement, collapsed: boolean): void {
 	panel.classList.toggle('collapsed', nextCollapsed);
 	toggle.setAttribute('aria-expanded', String(!nextCollapsed));
 	toggle.textContent = nextCollapsed ? '展开' : '折叠';
+	const hasSummaryText = !!summary.textContent?.trim();
 	if (currentCollapsed === nextCollapsed) {
 		if (nextCollapsed) {
-			summary.classList.add('show');
+			summary.classList.toggle('show', hasSummaryText);
 			body.classList.add('collapsed');
 			body.style.maxHeight = '0px';
 			return;
@@ -600,7 +709,7 @@ function setRunPanelCollapsed(panel: HTMLDivElement, collapsed: boolean): void {
 	if (nextCollapsed) {
 		animateCollapsibleSection(body, true, 'none', () => panel.classList.contains('collapsed'));
 		requestAnimationFrame(() => {
-			summary.classList.add('show');
+			summary.classList.toggle('show', hasSummaryText);
 		});
 		return;
 	}
@@ -847,6 +956,7 @@ function renderRunPanel(run: ChatRun): void {
 	const shouldStickToBottom = isChatNearBottom();
 	const suppressAutoScroll = runPanelAutoScrollSuppressed.delete(run.id);
 	const existingPanel = runPanelEls.get(run.id);
+	renderedRunStates.set(run.id, run);
 	if (!existingPanel && activeProgressRunId) {
 		setProgressRunCollapsed(activeProgressRunId, true);
 		activeProgressRunId = 0;
@@ -866,9 +976,10 @@ function renderRunPanel(run: ChatRun): void {
 	}
 
 	title.textContent = run.title || 'Sub Agent';
-	meta.textContent = [getRunStatusLabel(run.status), run.elapsedText || ''].filter(Boolean).join(' · ');
+	meta.textContent = getRunMetaText(run);
 	toggle.textContent = run.collapsed ? '展开' : '折叠';
-	summary.textContent = `${run.title || 'Sub Agent'} · ${getRunStatusLabel(run.status)}${run.elapsedText ? ` · ${run.elapsedText}` : ''}`;
+	summary.textContent = '';
+	summary.classList.remove('show');
 
 	if (run.transientToolStatusText) {
 		setRunPanelTransientToolStatus(run.id, run.transientToolStatusText);
@@ -932,6 +1043,7 @@ function renderRunPanel(run: ChatRun): void {
 	if (!suppressAutoScroll && shouldStickToBottom) {
 		scrollChatToBottom(false);
 	}
+	syncRunPanelClock();
 }
 
 function getProgressRunNodes(runId: number): HTMLDivElement[] {
@@ -1065,6 +1177,7 @@ function sendMessage(): void {
 		return;
 	}
 
+	removeWelcomeMessage();
 	appendMessage('user', text, true);
 	promptInput.value = '';
 	autoResizePrompt();
@@ -1367,6 +1480,10 @@ function renderSessionState(state: ChatSessionViewState | null): void {
 
 	const timeline = Array.isArray(state.timeline) ? state.timeline : [];
 	const runs = new Map((Array.isArray(state.runs) ? state.runs : []).map((run) => [run.id, run]));
+	const hasUserMessage = timeline.some((entry) => entry.kind === 'message' && entry.role === 'user');
+	if (hasUserMessage) {
+		removeWelcomeMessage();
+	}
 	timeline.forEach((entry) => {
 		if (entry.kind === 'message') {
 			appendMessage(entry.role === 'user' ? 'user' : 'assistant', entry.text || '');

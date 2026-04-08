@@ -307,6 +307,12 @@ export class ChatSessionStore {
 		return state.activeAssistantText;
 	}
 
+	public resetAssistantReply(sessionId: string): void {
+		const state = this.ensureViewState(sessionId);
+		state.activeAssistantText = '';
+		state.pendingAssistantError = undefined;
+	}
+
 	public appendStatusEntry(sessionId: string, kind: ChatStatusEntry['kind'], text: string): ChatStatusEntry | undefined {
 		const normalized = text.trim();
 		if (!normalized) {

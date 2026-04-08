@@ -2,13 +2,21 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { SessionEvent } from '@github/copilot-sdk';
 import type { NaviChatGateway } from './agent/chatGateway';
-import { CODE_REVIEW_AGENT_DISPLAY_NAME, CODE_REVIEW_AGENT_NAME } from './agent/agents/customAgents.js';
+import {
+	CODE_EXPLORATION_AGENT_DISPLAY_NAME,
+	CODE_EXPLORATION_AGENT_NAME,
+	CODE_REVIEW_AGENT_DISPLAY_NAME,
+	CODE_REVIEW_AGENT_NAME,
+	PLANNING_AGENT_DISPLAY_NAME,
+	PLANNING_AGENT_NAME
+} from './agent/agents/customAgents.js';
 import { buildFocusActionPrompt, type FocusAction } from './agent/config.js';
 import { logAgentFlow, summarizeText } from './agent/debugLogger.js';
 import { createMainChatGateway } from './agent/mainAgent.js';
 import type { ClearFocusCodeRegionInput } from './agent/tools/clearFocusCodeRegionTool';
 import type { FocusCodeRegionInput } from './agent/tools/focusCodeRegionTool';
 import type { GetFocusCodeRegionsInput } from './agent/tools/getFocusCodeRegionsTool';
+import type { JumpToFocusInput } from './agent/tools/jumpToFocusTool';
 import { ChatSessionStore } from './chat/sessionStore.js';
 import { SettingsManager } from './settings/settingsManager.js';
 import type { ChatFocusTarget, ChatInboundMessage, ChatRun } from './types/chat';
@@ -115,6 +123,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			focusRegion: async (sessionId, input) => this.focusUserCodeRegion(sessionId, input),
 			clearFocusRegions: async (sessionId, input) => this.clearFocusRegions(sessionId, input),
 			getFocusRegions: async (sessionId, input) => this.getFocusRegions(sessionId, input),
+			jumpToFocus: async (sessionId, input) => this.jumpToFocus(sessionId, input),
 			onMainProgress: async (text) => {
 				const sessionId = this.activeGenerationSessionId;
 				if (sessionId) {
@@ -425,6 +434,9 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		const startedAt = Date.now();
 		let elapsedText = '';
 		let shouldPersistElapsed = false;
+		let generationCancelled = false;
+		let generationFailed = false;
+		let generationFailureMessage = '';
 		const sessionId = this.sessionStore.getCurrentSessionId();
 		this.activeGenerationSessionId = sessionId;
 		const assistantRunId = this.sessionStore.startAssistantReply(sessionId);
@@ -441,7 +453,12 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			await this.postSessionSummary(webview);
 
 			const assistantText = await this.gateway.streamAssistantReply(sessionId, prompt, {
-				onAssistantDelta: async (delta: string) => {
+				onAssistantDelta: async (delta: string, event) => {
+					const parentToolCallId = event.data.parentToolCallId;
+					if (parentToolCallId) {
+						await this.handleSubagentAssistantDelta(sessionId, parentToolCallId, delta);
+						return;
+					}
 					logAgentFlow('main.extension', 'callback:onAssistantDelta', {
 						sessionId,
 						assistantRunId,
@@ -497,6 +514,9 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			});
 		} catch (error) {
 			const messageText = error instanceof Error ? error.message : 'Unknown error';
+			generationCancelled = messageText.includes('用户已取消');
+			generationFailed = !generationCancelled;
+			generationFailureMessage = messageText;
 			logAgentFlow('main.extension', 'handleUserMessage:error', {
 				sessionId,
 				assistantRunId,
@@ -520,17 +540,22 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 				assistantRunId,
 				shouldPersistElapsed,
 				elapsedText,
+				generationCancelled,
+				generationFailed,
 				activeSubagentRuns: this.activeSubagentRunIds.size
 			});
 			this.sessionStore.finishAssistantReply(sessionId);
 			if (shouldPersistElapsed && elapsedText) {
 				this.sessionStore.appendStatusEntry(sessionId, 'elapsed', elapsedText);
 			}
-			this.activeSubagentRunIds.clear();
-			this.subagentRunIdsByParentToolCallId.clear();
-			this.subagentRunIdsByToolCallId.clear();
-			this.subagentToolNamesByToolCallId.clear();
-			await this.setMainToolStatusSuspended(false);
+			if (generationCancelled) {
+				await this.finalizeActiveSubagentRuns(sessionId, 'cancelled');
+			} else if (generationFailed && this.activeSubagentRunIds.size > 0) {
+				await this.finalizeActiveSubagentRuns(sessionId, 'error', generationFailureMessage);
+			} else {
+				this.resetActiveSubagentTracking();
+				await this.setMainToolStatusSuspended(false);
+			}
 			this.isGenerating = false;
 			this.cancelGenerationRequested = false;
 			this.activeGenerationSessionId = undefined;
@@ -545,6 +570,52 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 				elapsedText
 			});
 		}
+	}
+
+	private resetActiveSubagentTracking(): void {
+		this.activeSubagentRunIds.clear();
+		this.subagentRunIdsByParentToolCallId.clear();
+		this.subagentRunIdsByToolCallId.clear();
+		this.subagentToolNamesByToolCallId.clear();
+	}
+
+	private async finalizeActiveSubagentRuns(
+		sessionId: string,
+		status: 'cancelled' | 'error',
+		errorText?: string
+	): Promise<void> {
+		const activeRunIds = [...this.activeSubagentRunIds];
+		logAgentFlow('main.extension.subagent', 'finalize_active_runs', {
+			sessionId,
+			status,
+			activeRunIds,
+			errorText
+		});
+
+		for (const runId of activeRunIds) {
+			const run = this.sessionStore.getRun(sessionId, runId);
+			if (!run || run.status !== 'running') {
+				continue;
+			}
+
+			const elapsedText = Number.isFinite(run.startedAt)
+				? this.formatElapsedText(Date.now() - run.startedAt)
+				: undefined;
+
+			if (status === 'cancelled') {
+				this.sessionStore.finishRun(sessionId, runId, {
+					status: 'cancelled',
+					elapsedText
+				});
+			} else {
+				this.sessionStore.failRun(sessionId, runId, errorText || '主请求提前结束，子任务未完成。', elapsedText);
+			}
+
+			await this.postRunStateToActiveWebview(sessionId, runId);
+		}
+
+		this.resetActiveSubagentTracking();
+		await this.setMainToolStatusSuspended(false);
 	}
 
 	private async ensureApiKeyBeforeFirstMessage(): Promise<boolean> {
@@ -875,7 +946,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 		const kind: ChatRun['kind'] = event.data.agentName === CODE_REVIEW_AGENT_NAME ? 'code_review' : 'subagent';
 		const run = this.sessionStore.startRun(sessionId, {
-			title: event.data.agentDisplayName || CODE_REVIEW_AGENT_DISPLAY_NAME,
+			title: this.resolveSubagentDisplayName(event.data.agentName, event.data.agentDisplayName),
 			kind
 		});
 		const shouldSuspendMainToolSlot = this.activeSubagentRunIds.size === 0;
@@ -909,9 +980,10 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			await this.setMainToolStatusSuspended(false);
 		}
 		const elapsedText = this.formatElapsedText(event.data.durationMs);
-		const finalAssistantText = event.data.agentName === CODE_REVIEW_AGENT_NAME
-			? '任务评估子 agent 已完成，结论已合并到主回复。'
-			: `${event.data.agentDisplayName} 已完成，结果已合并到主回复。`;
+		const run = this.sessionStore.getRun(sessionId, runId);
+		const finalAssistantText = run?.activeAssistantText.trim()
+			? undefined
+			: this.resolveSubagentCompletionText(event.data.agentName, event.data.agentDisplayName);
 		logAgentFlow('main.extension.subagent', 'finish', {
 			sessionId,
 			runId,
@@ -924,6 +996,37 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			elapsedText,
 			finalAssistantText
 		});
+		await this.postRunStateToActiveWebview(sessionId, runId);
+	}
+
+	private async handleSubagentAssistantDelta(
+		sessionId: string,
+		parentToolCallId: string,
+		text: string
+	): Promise<void> {
+		if (!text) {
+			return;
+		}
+
+		const runId = this.subagentRunIdsByParentToolCallId.get(parentToolCallId);
+		if (!runId) {
+			logAgentFlow('main.extension.subagent', 'assistant_delta:run_missing', {
+				sessionId,
+				parentToolCallId,
+				textLength: text.length,
+				textPreview: summarizeText(text)
+			});
+			return;
+		}
+
+		logAgentFlow('main.extension.subagent', 'assistant_delta', {
+			sessionId,
+			runId,
+			parentToolCallId,
+			textLength: text.length,
+			textPreview: summarizeText(text)
+		});
+		this.sessionStore.appendRunAssistantDelta(sessionId, runId, text);
 		await this.postRunStateToActiveWebview(sessionId, runId);
 	}
 
@@ -959,6 +1062,32 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			return undefined;
 		}
 		return `用时：${((durationMs as number) / 1000).toFixed(2)}s`;
+	}
+
+	private resolveSubagentDisplayName(agentName: string | undefined, agentDisplayName: string | undefined): string {
+		const explicitDisplayName = agentDisplayName?.trim();
+		if (explicitDisplayName) {
+			return explicitDisplayName;
+		}
+
+		switch (agentName) {
+			case CODE_REVIEW_AGENT_NAME:
+				return CODE_REVIEW_AGENT_DISPLAY_NAME;
+			case PLANNING_AGENT_NAME:
+				return PLANNING_AGENT_DISPLAY_NAME;
+			case CODE_EXPLORATION_AGENT_NAME:
+				return CODE_EXPLORATION_AGENT_DISPLAY_NAME;
+			default:
+				return 'Sub Agent';
+		}
+	}
+
+	private resolveSubagentCompletionText(agentName: string | undefined, agentDisplayName: string | undefined): string {
+		if (agentName === CODE_REVIEW_AGENT_NAME) {
+			return '任务评估子 agent 已完成。';
+		}
+
+		return `${this.resolveSubagentDisplayName(agentName, agentDisplayName)} 已完成。`;
 	}
 
 	private extractProgressFromToolResult(
@@ -1415,6 +1544,38 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		return {
 			activeIndex,
 			targets
+		};
+	}
+
+	private async jumpToFocus(
+		sessionId: string,
+		input: JumpToFocusInput
+	): Promise<{ activeIndex: number; activeFocusTarget: ChatFocusTarget | null; count: number }> {
+		const targets = this.focusTargetsBySessionId.get(sessionId) ?? [];
+		if (targets.length === 0) {
+			throw new Error('Current session has no focus regions.');
+		}
+
+		const requestedId = (input.id ?? '').trim();
+		let targetIndex = this.getActiveFocusIndex(sessionId, targets.length);
+		if (requestedId) {
+			targetIndex = targets.findIndex((target) => target.id === requestedId);
+			if (targetIndex < 0) {
+				throw new Error('Focus target not found.');
+			}
+		} else if (Number.isFinite(input.index)) {
+			const requestedIndex = Math.trunc(input.index ?? -1);
+			if (requestedIndex < 0 || requestedIndex >= targets.length) {
+				throw new Error('Focus index is out of range.');
+			}
+			targetIndex = requestedIndex;
+		}
+
+		await this.activateFocusTargetByIndex(sessionId, targetIndex, true);
+		return {
+			activeIndex: this.getActiveFocusIndex(sessionId, targets.length),
+			activeFocusTarget: this.getActiveFocusTarget(sessionId) ?? null,
+			count: targets.length
 		};
 	}
 

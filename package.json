@@ -39,7 +39,7 @@
         },
         "navi.model": {
           "type": "string",
-          "default": "gpt-4.1",
+          "default": "gpt-5-mini",
           "description": "Model name. In Copilot mode the default model is used unless overridden."
         },
 		"navi.streaming": {
@@ -47,6 +47,20 @@
 		  "default": true,
 		  "description": "Enable streaming session mode when creating Copilot SDK sessions. If disabled, replies are returned as complete messages."
 		},
+    "navi.subagentPseudoStreamChunkSize": {
+      "type": "number",
+      "default": 28,
+      "minimum": 8,
+      "maximum": 96,
+      "description": "Chunk size used for subagent pseudo-stream fallback when navi.streaming is true. Smaller values feel more incremental."
+    },
+    "navi.subagentPseudoStreamDelayMs": {
+      "type": "number",
+      "default": 18,
+      "minimum": 0,
+      "maximum": 200,
+      "description": "Delay in milliseconds between pseudo-stream chunks for subagent fallback output when navi.streaming is true."
+    },
         "navi.temperature": {
           "type": "number",
           "default": 0.2,
@@ -140,7 +154,7 @@
     "compile": "webpack",
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",
-    "compile-tests": "tsc -p tsconfig.tests.json",
+    "compile-tests": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true })\" && tsc -p tsconfig.tests.json",
     "watch-tests": "tsc -p tsconfig.tests.json -w",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint src",

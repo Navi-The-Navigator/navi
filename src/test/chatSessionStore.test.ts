@@ -207,6 +207,31 @@ suite('ChatSessionStore', () => {
 		assert.deepStrictEqual(state.runs[0].events.map((event) => event.kind), ['progress', 'elapsed']);
 	});
 
+	test('stores cancelled subagent runs with partial assistant text for replay', () => {
+		const store = new ChatSessionStore();
+		const sessionId = store.getCurrentSessionId();
+
+		store.appendMessage(sessionId, 'user', 'run a subagent then cancel it');
+		const run = store.startRun(sessionId, {
+			title: 'Explore Agent',
+			kind: 'subagent'
+		});
+		store.appendRunProgress(sessionId, run.id, '正在读取相关文件');
+		store.appendRunAssistantDelta(sessionId, run.id, '先确认调用链，再检查取消信号');
+		store.finishRun(sessionId, run.id, {
+			status: 'cancelled',
+			elapsedText: '用时：0.21s'
+		});
+
+		const state = store.getViewState(sessionId);
+		assert.strictEqual(state.runs.length, 1);
+		assert.strictEqual(state.runs[0].status, 'cancelled');
+		assert.strictEqual(state.runs[0].collapsed, true);
+		assert.strictEqual(state.runs[0].finalAssistantText, '先确认调用链，再检查取消信号');
+		assert.strictEqual(state.runs[0].elapsedText, '用时：0.21s');
+		assert.deepStrictEqual(state.runs[0].events.map((event) => event.kind), ['progress', 'elapsed']);
+	});
+
 	test('splits top-level progress groups when a subagent run starts', () => {
 		const store = new ChatSessionStore();
 		const sessionId = store.getCurrentSessionId();

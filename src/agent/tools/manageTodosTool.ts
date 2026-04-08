@@ -19,11 +19,24 @@ type ManageTodosInput = {
 	text?: string;
 	completed?: boolean;
 	completedOnly?: boolean;
+	parseError?: string;
 	todos?: Array<{
 		text: string;
 		completed?: boolean;
 	}>;
 };
+
+const MANAGE_TODOS_ACTIONS: readonly ManageTodosAction[] = [
+	'list',
+	'add',
+	'delete',
+	'complete',
+	'reopen',
+	'set_completed',
+	'update',
+	'clear',
+	'replace'
+];
 
 type ManageTodosDeps = {
 	getCurrentSessionId: () => string;
@@ -41,9 +54,12 @@ export function createManageTodosTool(deps: ManageTodosDeps): NaviTool {
 	return {
 		name: 'manage_todos',
 		description:
-			'Manage user TODO list for the current chat session. Input JSON: {action:"add|delete|complete|reopen|set_completed|update|clear|replace|list", id?, index?, text?, completed?, completedOnly?, todos?}.',
+			'Manage the visible TODO checklist for the current chat session. Always call this tool with an action command, not by writing the command text into a todo item. Prefer JSON input like {"action":"list"} or {"action":"replace","todos":[{"text":"Support log statement parsing","completed":false}]}. Supported actions: add, delete, complete, reopen, set_completed, update, clear, replace, list. Todo text should be a short user-facing title only; never pass raw tool-call text like "list" or "replace [...]" as a todo item.',
 		func: async (rawInput: string) => {
 			const input = parseInput(rawInput);
+			if (input.parseError) {
+				return errorResult(input.parseError);
+			}
 			const sessionId = deps.getCurrentSessionId();
 			const action = input.action ?? inferAction(input);
 			let message = '';
@@ -136,7 +152,78 @@ function parseInput(rawInput: string): ManageTodosInput {
 			return { action: 'add', text };
 		}
 	}
+
+	const commandInput = parseCommandInput(text);
+	if (commandInput) {
+		return commandInput;
+	}
+
 	return { action: 'add', text };
+}
+
+function parseCommandInput(text: string): ManageTodosInput | undefined {
+	const match = /^(\w+)(?:\s+([\s\S]+))?$/u.exec(text);
+	if (!match) {
+		return undefined;
+	}
+
+	const actionText = match[1].toLowerCase();
+	if (!isManageTodosAction(actionText)) {
+		return undefined;
+	}
+
+	const action = actionText;
+	const rest = (match[2] ?? '').trim();
+	if (!rest) {
+		return { action };
+	}
+
+	if (rest.startsWith('{')) {
+		try {
+			return { action, ...(JSON.parse(rest) as ManageTodosInput) };
+		} catch {
+			return { action, parseError: `Failed to parse ${action} payload: expected valid JSON object.` };
+		}
+	}
+
+	if (rest.startsWith('[')) {
+		if (action !== 'replace') {
+			return { action, parseError: `${action} does not accept a JSON array payload.` };
+		}
+		try {
+			const todos = JSON.parse(rest) as ManageTodosInput['todos'];
+			if (!Array.isArray(todos)) {
+				return { action, parseError: 'Failed to parse replace payload: expected a JSON array.' };
+			}
+			return { action, todos };
+		} catch {
+			return { action, parseError: 'Failed to parse replace payload: expected valid JSON array.' };
+		}
+	}
+
+	if (/^\d+$/u.test(rest)) {
+		const index = Number.parseInt(rest, 10);
+		if (action === 'delete' || action === 'complete' || action === 'reopen') {
+			return { action, index };
+		}
+	}
+
+	if (action === 'add' || action === 'update') {
+		return { action, text: rest };
+	}
+
+	if (action === 'delete' || action === 'complete' || action === 'reopen') {
+		return { action, id: rest };
+	}
+
+	return {
+		action,
+		parseError: `Unsupported ${action} command format. Use JSON input for this action.`
+	};
+}
+
+function isManageTodosAction(value: string): value is ManageTodosAction {
+	return (MANAGE_TODOS_ACTIONS as readonly string[]).includes(value);
 }
 
 function resolveTodoId(input: ManageTodosInput, todos: ChatTodo[]): string | undefined {

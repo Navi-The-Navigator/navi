@@ -71,4 +71,63 @@ suite('createManageTodosTool', () => {
 		assert.strictEqual(listed.ok, true);
 		assert.strictEqual(listed.todos.length, 1);
 	});
+
+	test('treats bare action commands as tool commands instead of todo text', async () => {
+		const store = new ChatSessionStore();
+		const sessionId = store.getCurrentSessionId();
+		const tool = createManageTodosTool({
+			getCurrentSessionId: () => sessionId,
+			getTodos: (id) => store.getTodos(id),
+			addTodo: (id, text) => store.addTodo(id, text),
+			deleteTodo: (id, todoId) => store.deleteTodo(id, todoId),
+			updateTodoText: (id, todoId, text) => store.updateTodoText(id, todoId, text),
+			setTodoCompleted: (id, todoId, completed) => store.setTodoCompleted(id, todoId, completed),
+			clearTodos: (id, completedOnly) => store.clearTodos(id, completedOnly),
+			replaceTodos: (id, todos) => store.replaceTodos(id, todos)
+		});
+
+		const listed = JSON.parse(await tool.func('list')) as {
+			ok: boolean;
+			action: string;
+			todos: Array<{ text: string }>;
+		};
+		assert.strictEqual(listed.ok, true);
+		assert.strictEqual(listed.action, 'list');
+		assert.strictEqual(listed.todos.length, 0);
+
+		const replaced = JSON.parse(
+			await tool.func('replace [{"text":"support log statement parsing","completed":false}]')
+		) as {
+			ok: boolean;
+			action: string;
+			todos: Array<{ text: string }>;
+		};
+		assert.strictEqual(replaced.ok, true);
+		assert.strictEqual(replaced.action, 'replace');
+		assert.strictEqual(replaced.todos.length, 1);
+		assert.strictEqual(replaced.todos[0].text, 'support log statement parsing');
+	});
+
+	test('rejects malformed bare replace commands instead of adding them as todos', async () => {
+		const store = new ChatSessionStore();
+		const sessionId = store.getCurrentSessionId();
+		const tool = createManageTodosTool({
+			getCurrentSessionId: () => sessionId,
+			getTodos: (id) => store.getTodos(id),
+			addTodo: (id, text) => store.addTodo(id, text),
+			deleteTodo: (id, todoId) => store.deleteTodo(id, todoId),
+			updateTodoText: (id, todoId, text) => store.updateTodoText(id, todoId, text),
+			setTodoCompleted: (id, todoId, completed) => store.setTodoCompleted(id, todoId, completed),
+			clearTodos: (id, completedOnly) => store.clearTodos(id, completedOnly),
+			replaceTodos: (id, todos) => store.replaceTodos(id, todos)
+		});
+
+		const result = JSON.parse(await tool.func('replace [invalid json')) as {
+			ok: boolean;
+			error: string;
+		};
+		assert.strictEqual(result.ok, false);
+		assert.match(result.error, /replace payload/i);
+		assert.deepStrictEqual(store.getTodos(sessionId), []);
+	});
 });

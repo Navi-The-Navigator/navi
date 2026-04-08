@@ -2,15 +2,11 @@ import type { ChatFocusTarget, ChatTodo } from '../types/chat';
 import { createMainCustomAgents } from './agents/customAgents.js';
 import { NaviChatGateway } from './chatGateway.js';
 import { createClearFocusCodeRegionTool, type ClearFocusCodeRegionInput } from './tools/clearFocusCodeRegionTool.js';
-import { createDateTimeTool } from './tools/dateTimeTool.js';
 import { createFocusCodeRegionTool, type FocusCodeRegionInput } from './tools/focusCodeRegionTool.js';
 import { createGetFocusCodeRegionsTool, type GetFocusCodeRegionsInput } from './tools/getFocusCodeRegionsTool.js';
-import { createGetWorkspaceErrorsTool } from './tools/getWorkspaceErrorsTool.js';
+import { createGetErrorsTool } from './tools/getErrorsTool.js';
+import { createJumpToFocusTool, type JumpToFocusInput } from './tools/jumpToFocusTool.js';
 import { createManageTodosTool } from './tools/manageTodosTool.js';
-import { createProjectStructureTool } from './tools/projectStructureTool.js';
-import { createReadFileTool } from './tools/readFileTool.js';
-import { createSearchFileContentTool } from './tools/searchFileContentTool.js';
-import { createSearchFilesTool } from './tools/searchFilesTool.js';
 import { createUpdateProgressTool } from './tools/updateProgressTool.js';
 
 type ClearFocusCodeRegionResult = {
@@ -22,6 +18,12 @@ type ClearFocusCodeRegionResult = {
 type GetFocusCodeRegionsResult = {
 	activeIndex: number;
 	targets: ChatFocusTarget[];
+};
+
+type JumpToFocusResult = {
+	activeIndex: number;
+	activeFocusTarget: ChatFocusTarget | null;
+	count: number;
 };
 
 export type MainAgentDeps = {
@@ -37,18 +39,14 @@ export type MainAgentDeps = {
 	focusRegion: (sessionId: string, input: FocusCodeRegionInput) => Promise<ChatFocusTarget>;
 	clearFocusRegions: (sessionId: string, input: ClearFocusCodeRegionInput) => Promise<ClearFocusCodeRegionResult>;
 	getFocusRegions: (sessionId: string, input: GetFocusCodeRegionsInput) => Promise<GetFocusCodeRegionsResult>;
+	jumpToFocus: (sessionId: string, input: JumpToFocusInput) => Promise<JumpToFocusResult>;
 	onMainProgress: (text: string) => Promise<void> | void;
 };
 
 export function createMainChatGateway(deps: MainAgentDeps): NaviChatGateway {
 	return new NaviChatGateway({
 		tools: [
-			createDateTimeTool(),
-			createProjectStructureTool(),
-			createReadFileTool(),
-			createSearchFilesTool(),
-			createSearchFileContentTool(),
-			createGetWorkspaceErrorsTool(),
+			createGetErrorsTool(),
 			createFocusCodeRegionTool({
 				getCurrentSessionId: deps.getCurrentSessionId,
 				focusRegion: deps.focusRegion
@@ -60,6 +58,10 @@ export function createMainChatGateway(deps: MainAgentDeps): NaviChatGateway {
 			createGetFocusCodeRegionsTool({
 				getCurrentSessionId: deps.getCurrentSessionId,
 				getFocusRegions: deps.getFocusRegions
+			}),
+			createJumpToFocusTool({
+				getCurrentSessionId: deps.getCurrentSessionId,
+				jumpToFocus: deps.jumpToFocus
 			}),
 			createUpdateProgressTool({
 				onProgress: deps.onMainProgress

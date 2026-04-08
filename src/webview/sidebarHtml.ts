@@ -30,7 +30,7 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 	</div>
 	<div id="sessionDropdown" class="session-dropdown"></div>
 	<div class="chat-body" id="chatBody">
-		<div class="message assistant">${DEFAULT_WELCOME_MESSAGE}</div>
+		<div class="message assistant"><p>${DEFAULT_WELCOME_MESSAGE}</p></div>
 		<div id="toolCallSlot" class="tool-call-slot" aria-live="polite"></div>
 		<div class="loading" id="loading">Navi is thinking...</div>
 	</div>

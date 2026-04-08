@@ -10,7 +10,10 @@ import type { RenderableMessage } from '../types/chat';
 const DEFAULT_STREAM_RETRY_LIMIT = 1;
 
 type StreamCallbacks = {
-	onAssistantDelta?: (delta: string) => Promise<void>;
+	onAssistantDelta?: (
+		delta: string,
+		event: Extract<SessionEvent, { type: 'assistant.message' | 'assistant.message_delta' }>
+	) => Promise<void>;
 	onSessionEvent?: (event: SessionEvent) => Promise<void> | void;
 	shouldCancel?: () => boolean;
 	abortSignal?: AbortSignal;
@@ -30,6 +33,7 @@ type StoredMessage = {
 export class NaviChatGateway {
 	private client?: CopilotClient;
 	private sessionMap = new Map<string, CopilotSession>();
+	private readonly resumableSessionIds = new Set<string>();
 	private clientInitPromise?: Promise<CopilotClient>;
 	/** In-memory conversation history keyed by session-id. */
 	private readonly messageHistory = new Map<string, StoredMessage[]>();
@@ -62,8 +66,10 @@ export class NaviChatGateway {
 
 				assistantText = '';
 
-				const idlePromise = this.waitForIdle(session, callbacks, (delta) => {
-					assistantText += delta;
+				const idlePromise = this.waitForIdle(session, callbacks, (delta, event) => {
+					if (!event.data.parentToolCallId) {
+						assistantText += delta;
+					}
 				});
 
 				logAgentFlow('main.gateway', 'streamAssistantReply:send_prompt', {
@@ -132,14 +138,10 @@ export class NaviChatGateway {
 	}
 
 	public async dispose(): Promise<void> {
-		for (const session of this.sessionMap.values()) {
-			try {
-				await session.disconnect();
-			} catch {
-				// best-effort
-			}
+		for (const sessionId of [...this.sessionMap.keys()]) {
+			await this.disposeSession(sessionId, false);
 		}
-		this.sessionMap.clear();
+		this.resumableSessionIds.clear();
 
 		if (this.client) {
 			try {
@@ -152,14 +154,9 @@ export class NaviChatGateway {
 	}
 
 	public async invalidateAgent(): Promise<void> {
-		for (const session of this.sessionMap.values()) {
-			try {
-				await session.disconnect();
-			} catch {
-				// best-effort
-			}
+		for (const sessionId of [...this.sessionMap.keys()]) {
+			await this.disposeSession(sessionId, true);
 		}
-		this.sessionMap.clear();
 
 		if (this.client) {
 			try {
@@ -209,9 +206,50 @@ export class NaviChatGateway {
 		}
 
 		const client = await this.getOrCreateClient();
+		const sessionConfig = this.buildSessionConfig();
+		const shouldResume = this.resumableSessionIds.has(sessionId) || this.messageHistory.has(sessionId);
+		let session: CopilotSession | undefined;
+
+		if (shouldResume) {
+			try {
+				session = await client.resumeSession(sessionId, sessionConfig);
+				logAgentFlow('main.gateway', 'resumeSession:resumed', {
+					sessionId,
+					toolCount: this.tools.length,
+					customAgentCount: (this.customAgents ?? []).length
+				});
+			} catch (error) {
+				logAgentFlow('main.gateway', 'resumeSession:failed_fallback_to_create', {
+					sessionId,
+					error
+				});
+			}
+		}
+
+		if (!session) {
+			const createConfig: Parameters<CopilotClient['createSession']>[0] = {
+				sessionId,
+				...sessionConfig
+			};
+			session = await client.createSession(createConfig);
+			logAgentFlow('main.gateway', 'createSession:created', {
+				sessionId,
+				toolCount: this.tools.length,
+				customAgentCount: (this.customAgents ?? []).length,
+				resumedFallback: shouldResume
+			});
+		}
+
+		this.resumableSessionIds.delete(sessionId);
+		this.sessionMap.set(sessionId, session);
+		return session;
+	}
+
+	private buildSessionConfig(): Parameters<CopilotClient['resumeSession']>[1] {
 		const config = vscode.workspace.getConfiguration('navi');
 		const model = resolveModel(config);
 		const streaming = resolveStreaming(config);
+		const workingDirectory = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 		const provider = resolveProvider(config);
 		const mcpServers = this.resolveMcpServers(config);
 
@@ -219,7 +257,6 @@ export class NaviChatGateway {
 		const mcpServerNames = Object.keys(mcpServers ?? {});
 		const customAgentNames = (this.customAgents ?? []).map((agent) => agent.name);
 		logAgentFlow('main.gateway', 'createSession:config_prepared', {
-			sessionId,
 			model,
 			streaming,
 			providerType: provider?.type,
@@ -231,9 +268,9 @@ export class NaviChatGateway {
 			customAgents: customAgentNames
 		});
 
-		const sessionConfig: Parameters<CopilotClient['createSession']>[0] = {
-			sessionId,
+		const sessionConfig: Parameters<CopilotClient['resumeSession']>[1] = {
 			model,
+			workingDirectory,
 			streaming,
 			tools: sdkTools,
 			mcpServers,
@@ -249,17 +286,7 @@ export class NaviChatGateway {
 			sessionConfig.provider = provider;
 		}
 
-		const session = await client.createSession(sessionConfig);
-		logAgentFlow('main.gateway', 'createSession:created', {
-			sessionId,
-			model,
-			streaming,
-			providerType: provider?.type,
-			customAgents: customAgentNames
-		});
-
-		this.sessionMap.set(sessionId, session);
-		return session;
+		return sessionConfig;
 	}
 
 	/**
@@ -269,16 +296,114 @@ export class NaviChatGateway {
 	private waitForIdle(
 		session: CopilotSession,
 		callbacks: StreamCallbacks,
-		onDelta: (delta: string) => void
+		onDelta: (delta: string, event: Extract<SessionEvent, { type: 'assistant.message' | 'assistant.message_delta' }>) => void
 	): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
-			let hasDelta = false;
-			let hasAppliedAssistantMessageFallback = false;
+			const messageIdsWithDelta = new Set<string>();
+			const messageIdsWithFallback = new Set<string>();
+			const pendingCallbackTasks = new Set<Promise<void>>();
+			let activeSubagentCount = 0;
+			let sessionIdleReceived = false;
+			let settled = false;
+			let cancellationCleanup: Promise<void> | undefined;
+
+			const trackCallbackTask = (task: Promise<void>): void => {
+				pendingCallbackTasks.add(task);
+				task.finally(() => {
+					pendingCallbackTasks.delete(task);
+				});
+			};
+
+			const emitSessionEvent = (event: SessionEvent): void => {
+				if (!callbacks.onSessionEvent) {
+					return;
+				}
+				trackCallbackTask(
+					Promise.resolve(callbacks.onSessionEvent(event))
+						.then(() => {})
+						.catch(() => {})
+				);
+			};
+
+			const emitAssistantDelta = (
+				delta: string,
+				event: Extract<SessionEvent, { type: 'assistant.message' | 'assistant.message_delta' }>
+			): void => {
+				if (!callbacks.onAssistantDelta) {
+					return;
+				}
+				trackCallbackTask(
+					callbacks
+						.onAssistantDelta(delta, event)
+						.then(() => {})
+						.catch(() => {})
+				);
+			};
+
+			const settlePendingCallbacks = async (): Promise<void> => {
+				while (pendingCallbackTasks.size > 0) {
+					await Promise.allSettled([...pendingCallbackTasks]);
+				}
+			};
+
+			const startCancellationCleanup = (requestAbort: boolean): Promise<void> => {
+				if (cancellationCleanup) {
+					return cancellationCleanup;
+				}
+
+				const mappedSession = this.sessionMap.get(session.sessionId);
+				if (mappedSession === session) {
+					this.sessionMap.delete(session.sessionId);
+				}
+				this.resumableSessionIds.add(session.sessionId);
+
+				cancellationCleanup = (async () => {
+					if (requestAbort) {
+						try {
+							await session.abort();
+						} catch (error) {
+							logAgentFlow('main.gateway', 'waitForIdle:abort_request_failed', {
+								sessionId: session.sessionId,
+								error
+							});
+						}
+					}
+
+					try {
+						await session.disconnect();
+					} catch (error) {
+						logAgentFlow('main.gateway', 'waitForIdle:disconnect_after_abort_failed', {
+							sessionId: session.sessionId,
+							error
+						});
+					}
+				})();
+
+				return cancellationCleanup;
+			};
+
+			/**
+			 * Only resolve once session is idle AND all sub-agents have finished.
+			 * We keep listening past session.idle so subagent.completed/failed can
+			 * still arrive and decrement the counter before we actually close.
+			 */
+			const trySettle = (): void => {
+				if (settled || !sessionIdleReceived || activeSubagentCount > 0) {
+					return;
+				}
+				settled = true;
+				unsubscribe();
+				void settlePendingCallbacks().then(() => {
+					logAgentFlow('main.gateway', 'waitForIdle:resolved_after_subagents', {
+						activeSubagentCount
+					});
+					resolve();
+				});
+			};
+
 			const unsubscribe = session.on((event: SessionEvent) => {
 				this.logSessionEvent(event);
-				if (callbacks.onSessionEvent) {
-					void Promise.resolve(callbacks.onSessionEvent(event)).catch(() => {});
-				}
+				emitSessionEvent(event);
 				try {
 					this.ensureNotCancelled(callbacks);
 				} catch (err) {
@@ -286,6 +411,7 @@ export class NaviChatGateway {
 						error: err
 					});
 					unsubscribe();
+					void startCancellationCleanup(false);
 					reject(err);
 					return;
 				}
@@ -294,36 +420,58 @@ export class NaviChatGateway {
 					case 'assistant.message_delta': {
 						const delta = event.data.deltaContent;
 						if (delta) {
-							hasDelta = true;
-							onDelta(delta);
-							if (callbacks.onAssistantDelta) {
-								callbacks.onAssistantDelta(delta).catch(() => {});
-							}
+							messageIdsWithDelta.add(event.data.messageId);
+							onDelta(delta, event);
+							emitAssistantDelta(delta, event);
 						}
 						break;
 					}
 					case 'assistant.message': {
-						if (hasDelta || hasAppliedAssistantMessageFallback) {
+						if (
+							messageIdsWithDelta.has(event.data.messageId) ||
+							messageIdsWithFallback.has(event.data.messageId)
+						) {
 							break;
 						}
 						const messageText = this.extractAssistantMessageText(event.data);
 						if (!messageText) {
 							break;
 						}
-						hasAppliedAssistantMessageFallback = true;
-						onDelta(messageText);
-						if (callbacks.onAssistantDelta) {
-							callbacks.onAssistantDelta(messageText).catch(() => {});
-						}
+						messageIdsWithFallback.add(event.data.messageId);
+						onDelta(messageText, event);
+						emitAssistantDelta(messageText, event);
 						logAgentFlow('main.gateway', 'waitForIdle:assistant_message_fallback_applied', {
 							textLength: messageText.length,
 							textPreview: summarizeText(messageText)
 						});
 						break;
 					}
+					case 'subagent.started':
+						activeSubagentCount++;
+						logAgentFlow('main.gateway', 'waitForIdle:subagent_started', {
+							activeSubagentCount
+						});
+						break;
+					case 'subagent.completed':
+					case 'subagent.failed':
+						activeSubagentCount = Math.max(0, activeSubagentCount - 1);
+						// After a sub-agent finishes, the main model will receive its result
+						// and continue reasoning, which will produce a fresh session.idle.
+						// Reset the flag so we don't settle on the stale pre-subagent idle.
+						sessionIdleReceived = false;
+						logAgentFlow('main.gateway', 'waitForIdle:subagent_finished', {
+							type: event.type,
+							activeSubagentCount,
+							sessionIdleReset: true
+						});
+						break;
 					case 'session.idle':
-						unsubscribe();
-						resolve();
+						sessionIdleReceived = true;
+						logAgentFlow('main.gateway', 'waitForIdle:session_idle_received', {
+							activeSubagentCount,
+							willWaitForSubagents: activeSubagentCount > 0
+						});
+						trySettle();
 						break;
 					case 'session.error':
 						unsubscribe();
@@ -339,8 +487,9 @@ export class NaviChatGateway {
 				const onAbort = () => {
 					logAgentFlow('main.gateway', 'waitForIdle:abort_signal_received');
 					unsubscribe();
-					session.abort().catch(() => {});
-					reject(new Error('__NAVI_CANCELLED__'));
+					void startCancellationCleanup(true).finally(() => {
+						reject(new Error('__NAVI_CANCELLED__'));
+					});
 				};
 				if (callbacks.abortSignal.aborted) {
 					onAbort();
@@ -386,7 +535,11 @@ export class NaviChatGateway {
 				});
 				break;
 			case 'session.idle':
-				logAgentFlow('main.gateway.event', 'session.idle');
+				logAgentFlow('main.gateway.event', 'session.idle', {
+					aborted: !!event.data.aborted,
+					backgroundAgents: event.data.backgroundTasks?.agents?.length ?? 0,
+					backgroundShells: event.data.backgroundTasks?.shells?.length ?? 0
+				});
 				break;
 			default:
 				logAgentFlow('main.gateway.event', event.type);
@@ -520,14 +673,30 @@ export class NaviChatGateway {
 	}
 
 	private async resetForRetry(sessionId: string): Promise<void> {
+		await this.disposeSession(sessionId, true);
+	}
+
+	private async disposeSession(sessionId: string, resumable: boolean): Promise<void> {
 		const session = this.sessionMap.get(sessionId);
-		if (session) {
-			try {
-				await session.disconnect();
-			} catch {
-				// best-effort
-			}
-			this.sessionMap.delete(sessionId);
+		this.sessionMap.delete(sessionId);
+		if (resumable) {
+			this.resumableSessionIds.add(sessionId);
+		} else {
+			this.resumableSessionIds.delete(sessionId);
+		}
+
+		if (!session) {
+			return;
+		}
+
+		try {
+			await session.disconnect();
+		} catch (error) {
+			logAgentFlow('main.gateway', 'disposeSession:disconnect_failed', {
+				sessionId,
+				resumable,
+				error
+			});
 		}
 	}
 
