@@ -184,9 +184,10 @@ export class McpSettingsManager {
 			const args = JSON.parse(argsInput) as string[];
 			const nextServer: McpServerEntry = {
 				enabled: true,
-				transport: 'stdio',
+				type: 'stdio',
 				command: command.trim(),
-				args
+				args,
+				tools: ['*']
 			};
 			if (cwd && cwd.trim()) {
 				nextServer.cwd = cwd.trim();
@@ -216,8 +217,9 @@ export class McpSettingsManager {
 
 		servers[serverName] = {
 			enabled: true,
-			transport: 'http',
-			url: url.trim()
+			type: 'http',
+			url: url.trim(),
+			tools: ['*']
 		};
 		return serverName;
 	}
@@ -313,7 +315,7 @@ export class McpSettingsManager {
 		}
 
 		const nextName = renamedInput.trim();
-		const currentTransport = typeof original.transport === 'string' ? original.transport : 'stdio';
+		const currentTransport = typeof original.type === 'string' ? original.type : 'stdio';
 		const transportChoice = await vscode.window.showQuickPick(
 			[
 				{ label: 'stdio', description: 'Local process via command/args', value: 'stdio' },
@@ -368,9 +370,10 @@ export class McpSettingsManager {
 			const args = JSON.parse(argsInput) as string[];
 			nextServer = {
 				...original,
-				transport: 'stdio',
+				type: 'stdio',
 				command: command.trim(),
-				args
+				args,
+				tools: original.tools ?? ['*']
 			};
 			delete nextServer.url;
 			if (cwd && cwd.trim()) {
@@ -401,8 +404,9 @@ export class McpSettingsManager {
 
 			nextServer = {
 				...original,
-				transport: 'http',
-				url: url.trim()
+				type: 'http',
+				url: url.trim(),
+				tools: original.tools ?? ['*']
 			};
 			delete nextServer.command;
 			delete nextServer.args;

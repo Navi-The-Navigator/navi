@@ -83,7 +83,7 @@
         "navi.mcpServersJson": {
           "type": "string",
           "default": "",
-          "markdownDescription": "MCP server config JSON. Example: `{\"math\":{\"transport\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-math\"]}}`"
+          "markdownDescription": "MCP server config JSON. Example: `{\"math\":{\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-math\"],\"tools\":[\"*\"]}}`"
         },
         "navi.copilotCliPath": {
           "type": "string",

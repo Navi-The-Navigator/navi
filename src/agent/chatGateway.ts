@@ -268,13 +268,17 @@ export class NaviChatGateway {
 			customAgents: customAgentNames
 		});
 
+		const customAgents = mcpServers
+			? (this.customAgents ?? []).map((agent) => ({ ...agent, mcpServers }))
+			: this.customAgents;
+
 		const sessionConfig: Parameters<CopilotClient['resumeSession']>[1] = {
 			model,
 			workingDirectory,
 			streaming,
 			tools: sdkTools,
 			mcpServers,
-			customAgents: this.customAgents,
+			customAgents,
 			onPermissionRequest: approveAll,
 			systemMessage: {
 				mode: 'replace',
