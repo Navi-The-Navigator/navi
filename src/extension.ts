@@ -59,7 +59,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	private readonly subagentRunIdsByParentToolCallId = new Map<string, string>();
 	private readonly subagentRunIdsByToolCallId = new Map<string, string>();
 	private readonly subagentToolNamesByToolCallId = new Map<string, string>();
-	private activeWebview?: vscode.Webview;
+	public activeWebview?: vscode.Webview;
 	private activeFocusWebview?: vscode.Webview;
 
 	constructor(
@@ -807,6 +807,17 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		await this.postTodos(webview, currentSessionId);
 		await this.postFocusTarget(webview, currentSessionId);
 		await this.postSessionViewState(webview, currentSessionId);
+	}
+
+	public async createNewSession(): Promise<void> {
+		if (this.isGenerating || !this.activeWebview) {
+			return;
+		}
+		this.sessionStore.createSession();
+		this.refreshFocusDecorationsForCurrentSession();
+		this.updateFocusSwitcherStatusBar();
+		await this.postFocusStateToActiveFocusWebview(this.sessionStore.getCurrentSessionId());
+		await this.syncSessionsToWebview(this.activeWebview);
 	}
 
 	private async handleSessionEventForUi(
@@ -1655,6 +1666,9 @@ export function activate(context: vscode.ExtensionContext) {
 		sidebarProvider
 	);
 
+	const newChatCommand = vscode.commands.registerCommand('navi.newChat', async () => {
+		await sidebarProvider.createNewSession();
+	});
 	const disposable = vscode.commands.registerCommand('navi.helloWorld', () => {
 		vscode.window.showInformationMessage('Hello World from Navi!');
 	});
@@ -1668,6 +1682,7 @@ export function activate(context: vscode.ExtensionContext) {
 		await sidebarProvider.focusNext();
 	});
 
+	context.subscriptions.push(newChatCommand);
 	context.subscriptions.push(viewProvider);
 	context.subscriptions.push(focusViewProvider);
 	context.subscriptions.push(disposable);

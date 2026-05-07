@@ -120,7 +120,7 @@
       "naviSidebar": [
         {
           "id": "navi.sidebarWebview",
-          "name": "Chat",
+          "name": "Navi",
           "type": "webview"
         },
         {
@@ -136,6 +136,11 @@
         "title": "Hello World"
       },
       {
+        "command": "navi.newChat",
+        "title": "Navi: New Chat",
+        "icon": "$(add)"
+      },
+      {
         "command": "navi.focusSwitcher",
         "title": "Navi: Switch Focus Region"
       },
@@ -147,7 +152,16 @@
         "command": "navi.focusNext",
         "title": "Navi: Focus Next Region"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "navi.newChat",
+          "when": "view == navi.sidebarWebview",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

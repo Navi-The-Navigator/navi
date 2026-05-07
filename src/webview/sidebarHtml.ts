@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 const DEFAULT_WELCOME_MESSAGE =
-	'你今天想构建什么？直接贴需求、报错或相关代码；我会先读取项目上下文，并在聊天区实时同步当前进度，再给你可立即执行的下一步。';
+	'What would you like to build today? Paste your requirements, errors, or related code; I will first read the project context and synchronize the current progress in the chat area, then give you the next actionable step.';
 
 export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 	const stylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'sidebar.css'));
@@ -16,19 +16,9 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 	<link rel="stylesheet" href="${stylesUri}" />
 </head>
 <body>
-	<div class="chat-header">
-		<div class="chat-header-main">
-			<div class="chat-dot"></div>
-			<div>
-				<div class="chat-title">Navi Chat</div>
-			</div>
-		</div>
-		<div class="chat-header-right">
-			<div id="activeSessionLabel" class="chat-session-title">New Chat</div>
-			<div class="chat-chevron">▶</div>
-		</div>
+	<div id="chatHeader" class="chat-header">
+		<span id="chatTitle" class="chat-title">New Chat</span>
 	</div>
-	<div id="sessionDropdown" class="session-dropdown"></div>
 	<div class="chat-body" id="chatBody">
 		<div class="message assistant"><p>${DEFAULT_WELCOME_MESSAGE}</p></div>
 		<div id="toolCallSlot" class="tool-call-slot" aria-live="polite"></div>
@@ -47,9 +37,6 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 				<div id="todoList" class="todo-list"></div>
 			</div>
 			<div id="composerPanel" class="composer">
-				<div class="composer-header">
-					<span class="composer-title">输入</span>
-				</div>
 				<div id="composerBody" class="composer-body">
 					<textarea id="prompt" placeholder="Ask Navi anything"></textarea>
 					<div class="composer-actions">
@@ -59,6 +46,17 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 				</div>
 			</div>
 		</div>
+	</div>
+	<div id="sessionDrawerOverlay" class="session-drawer-overlay"></div>
+	<div id="sessionDrawer" class="session-drawer" aria-label="Conversations">
+		<div class="drawer-header">
+			<span class="drawer-title">Sessions</span>
+			<button id="drawerNewChatBtn" class="drawer-new-chat-btn" type="button">+ New Chat</button>
+		</div>
+		<div class="drawer-search-wrap">
+			<input id="drawerSearch" class="drawer-search" type="text" placeholder="Search sessions…" autocomplete="off" />
+		</div>
+		<div id="sessionList" class="session-list"></div>
 	</div>
 	<script src="${scriptUri}"></script>
 </body>

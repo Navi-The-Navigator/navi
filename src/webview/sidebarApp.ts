@@ -156,8 +156,8 @@ declare function acquireVsCodeApi(): {
 };
 
 const DEFAULT_WELCOME_MESSAGE =
-	'你今天想构建什么？直接贴需求、报错或相关代码；我会先读取项目上下文，并在聊天区实时同步当前进度，再给你可立即执行的下一步。';
-const DEFAULT_EMPTY_ASSISTANT_MESSAGE = '我暂时没有生成可显示的文本响应。';
+	'What would you like to build today? Paste your requirements, errors, or related code; I will first read the project context and synchronize the current progress in the chat area, then give you the next actionable step.';
+const DEFAULT_EMPTY_ASSISTANT_MESSAGE = 'I have not generated any displayable text response yet.';
 const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 120;
 const TODO_BOTTOM_STICKY_THRESHOLD_PX = 120;
 const COLLAPSE_TRANSITION_MS = 240;
@@ -178,7 +178,8 @@ const markdown = new MarkdownIt({
 });
 
 const vscode = acquireVsCodeApi();
-const chatHeader = requireElement<HTMLDivElement>('.chat-header');
+const chatHeader = requireElement<HTMLDivElement>('#chatHeader');
+const chatTitle = requireElement<HTMLSpanElement>('#chatTitle');
 const chatBody = requireElement<HTMLDivElement>('#chatBody');
 const promptInput = requireElement<HTMLTextAreaElement>('#prompt');
 const settingsBtn = requireElement<HTMLButtonElement>('#settingsBtn');
@@ -188,9 +189,21 @@ const todoPanel = requireElement<HTMLDivElement>('#todoPanel');
 const todoToggleBtn = requireElement<HTMLButtonElement>('#todoToggleBtn');
 const todoList = requireElement<HTMLDivElement>('#todoList');
 const todoSummary = requireElement<HTMLSpanElement>('#todoSummary');
-const sessionDropdown = requireElement<HTMLDivElement>('#sessionDropdown');
-const activeSessionLabel = requireElement<HTMLDivElement>('#activeSessionLabel');
-const chatChevron = requireElement<HTMLDivElement>('.chat-chevron');
+const sessionDrawer = requireElement<HTMLDivElement>('#sessionDrawer');
+const sessionDrawerOverlay = requireElement<HTMLDivElement>('#sessionDrawerOverlay');
+
+// Suppress CSS transitions on page load so the drawer's initial translateX(100%)
+// is applied instantly (no "slide out" flash on startup).
+sessionDrawer.style.transition = 'none';
+sessionDrawerOverlay.style.transition = 'none';
+requestAnimationFrame(() => requestAnimationFrame(() => {
+	sessionDrawer.style.transition = '';
+	sessionDrawerOverlay.style.transition = '';
+}));
+const drawerNewChatBtn = requireElement<HTMLButtonElement>('#drawerNewChatBtn');
+const drawerSearch = requireElement<HTMLInputElement>('#drawerSearch');
+const sessionList = requireElement<HTMLDivElement>('#sessionList');
+const activeSessionLabel = document.querySelector<HTMLDivElement>('#activeSessionLabel');
 const toolCallSlot = requireElement<HTMLDivElement>('#toolCallSlot');
 const loading = requireElement<HTMLDivElement>('#loading');
 
@@ -399,7 +412,7 @@ function setLoading(isLoading: boolean): void {
 		sendBtn.textContent = 'Cancel';
 		sendBtn.classList.add('composer-cancel');
 		settingsBtn.disabled = true;
-		closeSessionDropdown();
+		closeSessionDrawer();
 		return;
 	}
 	loading.classList.remove('show');
@@ -471,7 +484,7 @@ function setTodoCollapsed(collapsed: boolean): void {
 	const shouldStickToBottom = distanceToBottom <= TODO_BOTTOM_STICKY_THRESHOLD_PX;
 	todoCollapsed = !!collapsed;
 	todoPanel.classList.toggle('collapsed', todoCollapsed);
-	todoToggleBtn.textContent = `${todoCollapsed ? '▸' : '▾'} TODO`;
+	todoToggleBtn.textContent = todoCollapsed ? '▸' : '▾';
 	todoToggleBtn.setAttribute('aria-expanded', String(!todoCollapsed));
 	if (!shouldStickToBottom) {
 		return;
@@ -1155,7 +1168,7 @@ function renderTodos(todos: ChatTodo[]): void {
 		row.className = `todo-item${todo.completed ? ' done' : ''}`;
 		const marker = document.createElement('span');
 		marker.className = 'todo-marker';
-		marker.textContent = todo.completed ? '✓' : String(index + 1);
+		marker.textContent = todo.completed ? '✓' : '○';
 		const text = document.createElement('span');
 		text.className = 'todo-text';
 		text.textContent = todo.text || '';
@@ -1192,33 +1205,45 @@ function sendMessage(): void {
 	}, 5000);
 }
 
-function openSessionDropdown(): void {
-	sessionDropdown.classList.add('show');
-	chatChevron.classList.add('open');
+function openSessionDrawer(): void {
+	sessionDrawer.classList.add('open');
+	sessionDrawerOverlay.classList.add('open');
+	setTimeout(() => drawerSearch.focus(), 50);
 }
 
-function closeSessionDropdown(): void {
-	sessionDropdown.classList.remove('show');
-	chatChevron.classList.remove('open');
+function closeSessionDrawer(): void {
+	sessionDrawer.classList.remove('open');
+	sessionDrawerOverlay.classList.remove('open');
 	editingSessionId = '';
+	drawerSearch.value = '';
+	filterSessions('');
 }
 
-function toggleSessionDropdown(): void {
-	if (sessionDropdown.classList.contains('show')) {
-		closeSessionDropdown();
+function toggleSessionDrawer(): void {
+	if (sessionDrawer.classList.contains('open')) {
+		closeSessionDrawer();
 		return;
 	}
-	openSessionDropdown();
+	openSessionDrawer();
+}
+
+function filterSessions(query: string): void {
+	const q = query.trim().toLowerCase();
+	sessionList.querySelectorAll<HTMLDivElement>('.session-card').forEach((card) => {
+		const title = (card.dataset.title || '').toLowerCase();
+		card.style.display = !q || title.includes(q) ? '' : 'none';
+	});
 }
 
 function renderSessions(sessions: ChatSession[], activeSessionId: string): void {
 	sessionsState = Array.isArray(sessions) ? sessions : [];
-	sessionDropdown.innerHTML = '';
+	sessionList.innerHTML = '';
 	currentSessionId = activeSessionId || '';
 
 	sessionsState.forEach((session) => {
 		const row = document.createElement('div');
 		row.className = `session-card${session.id === currentSessionId ? ' active' : ''}`;
+		row.dataset.title = (session.title || '').toLowerCase();
 
 		if (editingSessionId === session.id) {
 			const input = document.createElement('input');
@@ -1271,7 +1296,7 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 			toolWrap.appendChild(saveBtn);
 			toolWrap.appendChild(cancelBtn);
 			row.appendChild(toolWrap);
-			sessionDropdown.appendChild(row);
+			sessionList.appendChild(row);
 			setTimeout(() => input.focus(), 0);
 			return;
 		}
@@ -1284,7 +1309,7 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 			if (isBusy || !session.id || session.id === currentSessionId) {
 				return;
 			}
-			closeSessionDropdown();
+			closeSessionDrawer();
 			vscode.postMessage({ type: 'chat:switchSession', sessionId: session.id });
 		});
 
@@ -1318,28 +1343,16 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 		toolWrap.appendChild(deleteBtn);
 		row.appendChild(item);
 		row.appendChild(toolWrap);
-		sessionDropdown.appendChild(row);
+		sessionList.appendChild(row);
 	});
-
-	const divider = document.createElement('div');
-	divider.className = 'session-divider';
-	sessionDropdown.appendChild(divider);
-
-	const newChatAction = document.createElement('button');
-	newChatAction.type = 'button';
-	newChatAction.className = 'session-new-chat';
-	newChatAction.textContent = '+ New Chat';
-	newChatAction.addEventListener('click', () => {
-		if (isBusy) {
-			return;
-		}
-		closeSessionDropdown();
-		vscode.postMessage({ type: 'chat:newSession' });
-	});
-	sessionDropdown.appendChild(newChatAction);
 
 	const active = sessions.find((session) => session.id === currentSessionId);
-	activeSessionLabel.textContent = (active && active.title) || 'New Chat';
+	const activeTitle = (active && active.title) || 'New Chat';
+	chatTitle.textContent = activeTitle;
+	if (activeSessionLabel) {
+		activeSessionLabel.textContent = activeTitle;
+	}
+	filterSessions(drawerSearch.value);
 }
 
 function renderSessionHistory(messages: RenderableMessage[]): void {
@@ -1538,24 +1551,29 @@ settingsBtn.addEventListener('click', () => {
 	}
 	vscode.postMessage({ type: 'chat:openSettings' });
 });
-chatHeader.addEventListener('click', (event) => {
-	if (isBusy) {
-		return;
+chatHeader.addEventListener('click', () => {
+	if (!isBusy) {
+		toggleSessionDrawer();
 	}
-	event.stopPropagation();
-	toggleSessionDropdown();
 });
-sessionDropdown.addEventListener('click', (event) => {
-	event.stopPropagation();
-});
-document.addEventListener('click', () => {
-	closeSessionDropdown();
+sessionDrawerOverlay.addEventListener('click', () => {
+	closeSessionDrawer();
 });
 document.addEventListener('keydown', (event) => {
 	if (event.key !== 'Escape') {
 		return;
 	}
-	closeSessionDropdown();
+	closeSessionDrawer();
+});
+drawerSearch.addEventListener('input', () => {
+	filterSessions(drawerSearch.value);
+});
+drawerNewChatBtn.addEventListener('click', () => {
+	if (isBusy) {
+		return;
+	}
+	closeSessionDrawer();
+	vscode.postMessage({ type: 'chat:newSession' });
 });
 chatBody.addEventListener('click', (event) => {
 	const target = event.target;

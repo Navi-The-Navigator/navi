@@ -53,7 +53,7 @@ export const SYSTEM_PROMPT =
 
 ---
 
-### 阶段三：执行 todo（一次一个）
+### 阶段三：执行 todo（一次一个，在 planning 完成后自动进入第一个 todo）
 
 * 严格按顺序执行
 * 不允许跳过或重排

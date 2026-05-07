@@ -24,6 +24,7 @@ export class ChatSessionStore {
 	private readonly todosBySessionId = new Map<string, ChatTodo[]>();
 	private readonly viewStateBySessionId = new Map<string, ChatSessionViewStateInternal>();
 	private currentSessionId = '';
+	private nextSessionNumber = 1;
 
 	constructor() {
 		const firstSession = this.createSession();
@@ -41,7 +42,7 @@ export class ChatSessionStore {
 	public createSession(): ChatSession {
 		const session: ChatSession = {
 			id: createThreadId(),
-			title: 'New Chat',
+			title: `New Chat #${this.nextSessionNumber++}`,
 			createdAt: Date.now()
 		};
 
@@ -63,7 +64,7 @@ export class ChatSessionStore {
 
 	public updateSessionTitleIfNeeded(sessionId: string, prompt: string): void {
 		const session = this.sessions.find((item) => item.id === sessionId);
-		if (!session || session.title !== 'New Chat') {
+		if (!session || !session.title.startsWith('New Chat #')) {
 			return;
 		}
 
