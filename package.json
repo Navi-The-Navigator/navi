@@ -190,7 +190,7 @@
   },
   "dependencies": {
     "@github/copilot-sdk": "^0.2.1",
-    "dompurify": "^3.3.3",
+    "dompurify": "^3.4.0",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.1",
     "marked": "^17.0.5"
