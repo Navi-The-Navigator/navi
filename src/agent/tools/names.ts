@@ -14,3 +14,18 @@ export const TOOL_NAMES = {
 } as const;
 
 export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES];
+
+/**
+ * Investigation tools provided by the Copilot CLI itself (not Navi tools).
+ * Granted to the planning and exploration sub-agents so they can actually read
+ * and search code. Names match the CLI's built-in `explore` agent definition.
+ */
+export const BUILTIN_TOOL_NAMES = {
+	view: 'view',
+	grep: 'grep',
+	glob: 'glob',
+	lsp: 'lsp',
+	bash: 'bash'
+} as const;
+
+export type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[keyof typeof BUILTIN_TOOL_NAMES];

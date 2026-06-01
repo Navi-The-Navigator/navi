@@ -69,11 +69,13 @@ Navi 可以把“下一步应该改哪里”映射成明确的代码区域：
 
 ### 4. 子 Agent 协作
 
-仓库里已经定义了三个专用子 Agent：
+Navi 把主 Agent 与若干子 Agent 组合在一起：
 
-- `planning_agent`: 根据需求和上下文生成任务 TODO
-- `code_exploration_agent`: 探索代码库、定位实现和调用链
-- `code_review_agent`: 评估当前任务是否真正完成
+- `code_explorer`（Navi 自带）：只读地探索代码库、定位实现与调用链，并通过 `update_progress` 上报里程碑进度
+- `planning_agent`（Navi 自带）：定位改动点，并把任务 TODO 写入 Navi
+- 完成度评估：委托给内置的 `critic`（默认）/ `code-review` Agent，判断改动是否满足验收标准
+
+只有主 Agent 能改动 Navi 状态（TODO、focus、进度）：在评估给出结论后，由它来完成 TODO、清理 focus 区域。
 
 子 Agent 的执行会以独立 run 的形式出现在聊天时间线中，便于回看每一步做了什么。
 

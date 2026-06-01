@@ -1,26 +1,21 @@
 import type { ChatFocusTarget } from '../types/chat';
-import {
-	CODE_EXPLORATION_AGENT_SYSTEM_PROMPT,
-	CODE_REVIEW_AGENT_SYSTEM_PROMPT,
-	PLANNING_AGENT_SYSTEM_PROMPT
-} from './agents.js';
+import { CODE_EXPLORER_AGENT_SYSTEM_PROMPT, PLANNING_AGENT_SYSTEM_PROMPT } from './agents.js';
 import { SYSTEM_PROMPT, buildFocusActionPrompt, type FocusAction } from './main.js';
 
 export { SYSTEM_PROMPT, buildFocusActionPrompt } from './main.js';
 export type { FocusAction } from './main.js';
-export {
-	CODE_EXPLORATION_AGENT_SYSTEM_PROMPT,
-	CODE_REVIEW_AGENT_SYSTEM_PROMPT,
-	PLANNING_AGENT_SYSTEM_PROMPT
-} from './agents.js';
-export { SECTION_RULE, composeSections } from './fragments.js';
+export { CODE_EXPLORER_AGENT_SYSTEM_PROMPT, PLANNING_AGENT_SYSTEM_PROMPT } from './agents.js';
+export { SECTION_RULE, composeSections, withWorkingDirectory } from './fragments.js';
 
-/** Identifier for a built-in sub-agent system prompt. */
-export type PromptId = 'codeExploration' | 'codeReview' | 'planning';
+/**
+ * Identifier for a custom sub-agent system prompt. Navi ships the exploration
+ * and planning agents; review is delegated to the built-in `critic` /
+ * `code-review` agents instead.
+ */
+export type PromptId = 'exploration' | 'planning';
 
 const AGENT_PROMPTS: Record<PromptId, string> = {
-	codeExploration: CODE_EXPLORATION_AGENT_SYSTEM_PROMPT,
-	codeReview: CODE_REVIEW_AGENT_SYSTEM_PROMPT,
+	exploration: CODE_EXPLORER_AGENT_SYSTEM_PROMPT,
 	planning: PLANNING_AGENT_SYSTEM_PROMPT
 };
 

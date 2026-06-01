@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { approveAll } from '@github/copilot-sdk';
 import type { CopilotClient, CustomAgentConfig, MCPServerConfig, Tool } from '@github/copilot-sdk';
-import { SYSTEM_PROMPT } from '../prompts/index.js';
+import { SYSTEM_PROMPT, withWorkingDirectory } from '../prompts/index.js';
 import { logAgentFlow } from './debugLogger.js';
 import { resolveMcpEnabled, resolveMcpServersJson, resolveModel, resolveStreaming } from '../settings/naviConfig.js';
 import { resolveProvider } from './modelFactory.js';
@@ -35,9 +35,15 @@ export function buildSessionConfig(tools: NaviTool[], customAgents?: CustomAgent
 		customAgents: customAgentNames
 	});
 
-	const resolvedCustomAgents = mcpServers
-		? (customAgents ?? []).map((agent) => ({ ...agent, mcpServers }))
-		: customAgents;
+	// Inject the working directory into every prompt. The main agent uses
+	// `mode: 'replace'`, so the CLI emits our content verbatim with no
+	// environment block; we add cwd ourselves here, and to each sub-agent prompt
+	// so they know the cwd regardless of how the runtime assembles their prompt.
+	const resolvedCustomAgents = customAgents?.map((agent) => ({
+		...agent,
+		prompt: withWorkingDirectory(agent.prompt, workingDirectory),
+		...(mcpServers ? { mcpServers } : {})
+	}));
 
 	const sessionConfig: NaviSessionConfig = {
 		model,
@@ -49,7 +55,7 @@ export function buildSessionConfig(tools: NaviTool[], customAgents?: CustomAgent
 		onPermissionRequest: approveAll,
 		systemMessage: {
 			mode: 'replace',
-			content: SYSTEM_PROMPT
+			content: withWorkingDirectory(SYSTEM_PROMPT, workingDirectory)
 		}
 	};
 

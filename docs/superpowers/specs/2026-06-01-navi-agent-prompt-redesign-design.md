@@ -73,13 +73,22 @@ through a separate, additive registry.
 
 ## 3. Chosen architecture — hybrid
 
-Net change: **3 custom agents → 1**. Exploration and review are delegated to
-built-in agents; the main agent owns everything that mutates Navi state and
-applies wrap-up after a built-in verdict.
+Net change: **3 custom agents → 2**. Review is delegated to built-in agents; the
+main agent owns everything that mutates Navi state and applies wrap-up after a
+built-in verdict.
+
+> **Update (2026-06-01, post-review):** exploration was initially planned to use
+> the built-in `explore` agent, but that agent's fixed toolset cannot call
+> `update_progress`, so it cannot report milestone progress into its run panel.
+> To get that progress, exploration is handled by a Navi-owned **`code_explorer`**
+> custom agent that mirrors `explore`'s read-only toolset (`grep/glob/view/lsp/bash`)
+> **plus** `update_progress`. Practical capability loss vs. built-in `explore` is
+> ~nil for a local workspace (its extra semantic-search / github-mcp tools are
+> generally not wired up locally).
 
 | Responsibility | Handler | Mechanism |
 | --- | --- | --- |
-| Codebase investigation (locate / trace / understand) | built-in **`explore`** | `Task(agent_type:"explore")` |
+| Codebase investigation (locate / trace / understand) | Navi custom **`code_explorer`** | `Task(agent_type:"code_explorer")` |
 | Decompose a change into todos | Navi custom **`planning_agent`** | `Task(agent_type:"planning_agent")` |
 | "Does this satisfy the goal/acceptance?" critique (default reviewer) | built-in **`critic`** | `Task(agent_type:"critic")` |
 | Bug/correctness check of substantial changes (escalation) | built-in **`code-review`** | `Task(agent_type:"code-review")` |
@@ -87,7 +96,11 @@ applies wrap-up after a built-in verdict.
 
 ### Decisions
 
-- **Keep `planning_agent` as a custom sub-agent.** It is the only irreducibly
+- **`code_explorer` is a custom agent** (not the built-in `explore`) specifically
+  so it can carry `update_progress` and surface milestone progress in its run
+  panel — the run tracker already routes a sub-agent's `update_progress` calls to
+  that run's panel.
+- **Keep `planning_agent` as a custom sub-agent.** It is the irreducibly
   Navi-specific piece (writes todos), and keeping it a sub-agent preserves
   context isolation — planning deliberation renders in its own run panel rather
   than polluting the visible chat thread.
@@ -163,17 +176,22 @@ Clean structure, same job, tightened output schema:
 
 ## 6. Tool grants — `src/agent/agents/customAgents.ts`
 
-Register **only** `planning_agent`. Remove the `code_exploration_agent` and
-`code_review_agent` registrations.
+Register `code_explorer` and `planning_agent`. Remove the old
+`code_exploration_agent` and `code_review_agent` registrations (review is now
+delegated to the built-in `critic` / `code-review`).
 
-`planning_agent` tools (fixes the current mismatch):
-`manage_todos`, `update_progress`, **`view`, `grep`, `glob`, `lsp`** — so it can
-actually locate change points. `infer: false` preserved.
+- `code_explorer` tools: `grep`, `glob`, `view`, `lsp`, `bash`, **`update_progress`**
+  — the read-only investigation set plus the progress tool the built-in `explore`
+  lacks. `infer: false`.
+- `planning_agent` tools (fixes the current mismatch):
+  `manage_todos`, `update_progress`, **`view`, `grep`, `glob`, `lsp`** — so it can
+  actually locate change points. `infer: false` preserved.
 
-Built-in tool name strings (`view`, `grep`, `glob`, `lsp`) are not Navi tools, so
-they are not added to `TOOL_NAMES` in `src/agent/tools/names.ts`. Introduce a
-separate `BUILTIN_TOOL_NAMES` const (in `names.ts` or `customAgents.ts`) to avoid
-bare string literals.
+Built-in tool name strings (`view`, `grep`, `glob`, `lsp`, `bash`) are not Navi
+tools, so they are not added to `TOOL_NAMES` in `src/agent/tools/names.ts`. They
+live in a separate `BUILTIN_TOOL_NAMES` const there. The built-in agent names the
+main agent delegates to (`critic`, `code-review`) live in a `BUILTIN_AGENTS` const
+in `customAgents.ts`.
 
 ## 7. Shared fragments — `src/prompts/fragments.ts`
 
@@ -208,18 +226,24 @@ Keep `SECTION_RULE` and `composeSections`. The existing `PROGRESS_UPDATES_HEADIN
   `['manage_todos','update_progress','view','grep','glob','lsp']` (order per
   implementation). Remove the exploration-agent assertions.
 - **New guard test** — assert `SYSTEM_PROMPT` references the delegation contract
-  by name: contains `explore`, `critic`, `code-review`, and `planning_agent`.
+  by name: contains `code_explorer`, `critic`, `code-review`, and `planning_agent`.
 - **Runtime sanity check (manual, non-CI)** — in the Extension Dev Host, confirm
-  the main agent can actually invoke built-in `explore` and `critic` from a Navi
-  session. Fallback if a built-in is unreachable: re-introduce a thin custom
-  wrapper agent that carries Navi tools and delegates reading to the built-in.
+  the main agent can actually invoke the custom `code_explorer` and the built-in
+  `critic` from a Navi session, and that `code_explorer`'s `update_progress` calls
+  surface in its run panel. Fallback if a built-in is unreachable: keep the custom
+  agents and reconsider which review work moves into them.
 
 ## 10. Out of scope
 
 - The sub-agent invocation mechanism, the `Task` tool, and the `infer` flag.
-- UI / run-tracker code — built-in agent runs already render via the generic
+- UI rendering: built-in agent runs render via the generic
   `subagent.started/completed/failed` events (they carry `agentName` /
-  `agentDisplayName`), so no special handling is needed.
+  `agentDisplayName`), and run *titles* resolve from the SDK-provided
+  `agentDisplayName`. **Correction:** `src/chat/subagentRunTracker.ts` is *not*
+  fully out of scope — it imports the removed name constants and tags the
+  `code_review` run kind by agent name, so its imports and the
+  kind/display/completion-text logic were updated to key on the built-in
+  `critic` / `code-review` names. No other UI code changed.
 - Any change to Navi's own tool implementations.
 - Localization: prompts stay English (matches the "full English UI" direction).
 

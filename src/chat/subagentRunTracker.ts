@@ -1,9 +1,8 @@
 import type { AgentEvent } from '../agent/sdkEventMapper.js';
 import {
-	CODE_EXPLORATION_AGENT_DISPLAY_NAME,
-	CODE_EXPLORATION_AGENT_NAME,
-	CODE_REVIEW_AGENT_DISPLAY_NAME,
-	CODE_REVIEW_AGENT_NAME,
+	BUILTIN_AGENTS,
+	CODE_EXPLORER_AGENT_DISPLAY_NAME,
+	CODE_EXPLORER_AGENT_NAME,
 	PLANNING_AGENT_DISPLAY_NAME,
 	PLANNING_AGENT_NAME
 } from '../agent/agents/customAgents.js';
@@ -11,6 +10,11 @@ import { logAgentFlow, summarizeText } from '../agent/debugLogger.js';
 import type { ChatRun } from '../types/chat';
 import type { ChatMessenger } from './chatMessenger.js';
 import type { ChatSessionStore } from './sessionStore.js';
+
+/** Whether a sub-agent run is one of Navi's review-style delegations. */
+function isReviewAgent(agentName: string | undefined): boolean {
+	return agentName === BUILTIN_AGENTS.critic || agentName === BUILTIN_AGENTS.codeReview;
+}
 
 /**
  * Tracks subagent runs surfaced by the gateway's session-event stream and mirrors
@@ -239,7 +243,7 @@ export class SubagentRunTracker {
 			return;
 		}
 
-		const kind: ChatRun['kind'] = event.agentName === CODE_REVIEW_AGENT_NAME ? 'code_review' : 'subagent';
+		const kind: ChatRun['kind'] = isReviewAgent(event.agentName) ? 'code_review' : 'subagent';
 		const run = this.sessionStore.startRun(sessionId, {
 			title: this.resolveSubagentDisplayName(event.agentName, event.agentDisplayName),
 			kind
@@ -334,21 +338,26 @@ export class SubagentRunTracker {
 			return explicitDisplayName;
 		}
 
+		// Built-in agents (explore / critic / code-review) supply their own
+		// displayName via the event above; these fallbacks only fire when it is
+		// absent.
 		switch (agentName) {
-			case CODE_REVIEW_AGENT_NAME:
-				return CODE_REVIEW_AGENT_DISPLAY_NAME;
+			case CODE_EXPLORER_AGENT_NAME:
+				return CODE_EXPLORER_AGENT_DISPLAY_NAME;
 			case PLANNING_AGENT_NAME:
 				return PLANNING_AGENT_DISPLAY_NAME;
-			case CODE_EXPLORATION_AGENT_NAME:
-				return CODE_EXPLORATION_AGENT_DISPLAY_NAME;
+			case BUILTIN_AGENTS.critic:
+				return 'Critic Agent';
+			case BUILTIN_AGENTS.codeReview:
+				return 'Code Review Agent';
 			default:
 				return 'Sub Agent';
 		}
 	}
 
 	private resolveSubagentCompletionText(agentName: string | undefined, agentDisplayName: string | undefined): string {
-		if (agentName === CODE_REVIEW_AGENT_NAME) {
-			return 'The task-review subagent finished.';
+		if (isReviewAgent(agentName)) {
+			return 'The review subagent finished.';
 		}
 
 		return `${this.resolveSubagentDisplayName(agentName, agentDisplayName)} finished.`;
