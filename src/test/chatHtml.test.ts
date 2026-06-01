@@ -1,16 +1,16 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { getSidebarHtml } from '../webview/sidebarHtml.js';
+import { getChatHtml } from '../webview/chat/html.js';
 
-suite('getSidebarHtml', () => {
-	test('renders the expected shell, stylesheet, and CSP nonce', () => {
+suite('getChatHtml', () => {
+	test('renders the expected shell, stylesheets, and CSP nonce', () => {
 		const webview = {
 			cspSource: 'vscode-webview://test-source',
 			asWebviewUri: (uri: vscode.Uri) => vscode.Uri.parse(`webview:${uri.path}`)
 		} as unknown as vscode.Webview;
 		const extensionUri = vscode.Uri.file('/tmp/navi-extension');
 
-		const html = getSidebarHtml(webview, extensionUri);
+		const html = getChatHtml(webview, extensionUri);
 		assert.ok(html.includes('<title>Navi Chat</title>'));
 		assert.ok(
 			html.includes(
@@ -27,9 +27,10 @@ suite('getSidebarHtml', () => {
 		assert.ok(!html.includes('function renderFocusTarget(target)'));
 		assert.ok(!html.includes("type: 'chat:revealFocusTarget'"));
 		assert.ok(!html.includes("if (message.type === 'chat:focusTarget')"));
-		assert.ok(html.includes('webview:/tmp/navi-extension/media/sidebar.css'));
-		assert.ok(html.includes('webview:/tmp/navi-extension/dist/sidebarApp.js'));
+		assert.ok(html.includes('webview:/tmp/navi-extension/media/navi.css'));
+		assert.ok(html.includes('webview:/tmp/navi-extension/media/chat.css'));
+		assert.ok(html.includes('webview:/tmp/navi-extension/dist/chatApp.js'));
 		assert.ok(html.includes('style-src vscode-webview://test-source; script-src vscode-webview://test-source;'));
-		assert.ok(html.includes('<script src="webview:/tmp/navi-extension/dist/sidebarApp.js"></script>'));
+		assert.ok(html.includes('<script src="webview:/tmp/navi-extension/dist/chatApp.js"></script>'));
 	});
 });

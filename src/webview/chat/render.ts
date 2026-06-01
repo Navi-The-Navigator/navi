@@ -1,181 +1,62 @@
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
 import MarkdownIt from 'markdown-it';
-
-type ChatRole = 'user' | 'assistant';
-
-type ChatSession = {
-	id: string;
-	title: string;
-	createdAt: number;
-};
-
-type ChatTodo = {
-	id: string;
-	text: string;
-	completed: boolean;
-	createdAt: number;
-	completedAt?: number;
-};
-
-type RenderableMessage = {
-	role: ChatRole;
-	text: string;
-};
-
-type ChatRunKind = 'subagent' | 'code_review';
-
-type ChatRunStatus = 'running' | 'completed' | 'error' | 'cancelled';
-
-type ChatRunEventKind = 'progress' | 'tool' | 'elapsed' | 'error';
-
-type ChatRunEvent = {
-	id: string;
-	kind: ChatRunEventKind;
-	text: string;
-	createdAt: number;
-	transient?: boolean;
-	status?: 'started' | 'finished';
-	toolName?: string;
-};
-
-type ChatRun = {
-	id: string;
-	title: string;
-	kind: ChatRunKind;
-	status: ChatRunStatus;
-	createdAt: number;
-	startedAt: number;
-	endedAt?: number;
-	elapsedText?: string;
-	parentRunId?: string;
-	collapsed: boolean;
-	autoCollapse: boolean;
-	transientToolStatusText: string;
-	activeAssistantText: string;
-	finalAssistantText: string;
-	events: ChatRunEvent[];
-};
-
-type ChatStatusEntry = {
-	kind: 'progress' | 'elapsed';
-	text: string;
-	runId: number;
-	createdAt: number;
-};
-
-type ChatSessionViewState = {
-	timeline: ChatTimelineEntry[];
-	runs: ChatRun[];
-	isGenerating: boolean;
-	activeAssistantText: string;
-	activeRunId: number;
-};
-
-type ChatTimelineEntry =
-	| {
-		kind: 'message';
-		role: ChatRole;
-		text: string;
-		createdAt: number;
-	}
-	| {
-		kind: 'run';
-		runId: string;
-		createdAt: number;
-	}
-	| {
-		kind: 'status';
-		statusKind: ChatStatusEntry['kind'];
-		text: string;
-		runId: number;
-		createdAt: number;
-	};
-
-type SidebarMessage = {
-	type?: string;
-	text?: string;
-	transient?: boolean;
-	sessionId?: string;
-	currentSessionId?: string;
-	state?: ChatSessionViewState | null;
-	sessions?: ChatSession[];
-	messages?: RenderableMessage[];
-	todos?: ChatTodo[];
-	message?: string;
-	activeRunId?: number;
-	title?: string;
-	runId?: number;
-	run?: ChatRun;
-	kind?: ChatStatusEntry['kind'];
-	statusEntries?: ChatStatusEntry[];
-	activeAssistantText?: string;
-	isGenerating?: boolean;
-	activeIndex?: number;
-	focusTargets?: unknown[];
-	createdAt?: number;
-	role?: ChatRole;
-	id?: string;
-	completed?: boolean;
-	updatedAt?: number;
-	startLine?: number;
-	endLine?: number;
-	path?: string;
-	instruction?: string;
-	focusTargetId?: string;
-	focusTargetIds?: string[];
-	titleText?: string;
-	name?: string;
-	label?: string;
-	value?: string;
-	data?: unknown;
-	completedAt?: number;
-	createdAtMs?: number;
-	timestamp?: number;
-	content?: string;
-	error?: string;
-	status?: string;
-	raw?: string;
-	markdown?: string;
-	messageText?: string;
-	payload?: unknown;
-	progress?: unknown;
-	elapsed?: string;
-	todoId?: string;
-	todoText?: string;
-	todoCompleted?: boolean;
-	nextTitle?: string;
-	preview?: string;
-	collapsed?: boolean;
-};
-
-declare function acquireVsCodeApi(): {
-	postMessage(message: unknown): void;
-	setState?(state: unknown): void;
-	getState?(): unknown;
-};
-
-const DEFAULT_WELCOME_MESSAGE =
-	'What would you like to build today? Paste your requirements, errors, or related code; I will first read the project context and synchronize the current progress in the chat area, then give you the next actionable step.';
-const DEFAULT_EMPTY_ASSISTANT_MESSAGE = 'I have not generated any displayable text response yet.';
-const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 120;
-const TODO_BOTTOM_STICKY_THRESHOLD_PX = 120;
-const COLLAPSE_TRANSITION_MS = 240;
-
-// User-facing strings, centralized for easy future localization.
-const T = {
-	runStatus: { running: 'Running', completed: 'Done', cancelled: 'Cancelled', failed: 'Failed' },
-	durationSuffix: 's',
-	running: (duration: string) => `${duration} elapsed`,
-	took: (duration: string) => `Took ${duration}`,
-	expand: 'Expand',
-	collapse: 'Collapse',
-	progressCollapsed: (count: number) => `Progress (${count}) — click to expand`,
-	progressExpanded: (count: number) => `Progress (${count}) — click to collapse`,
-	requestNotProcessed: 'Request was not processed. Please try again.',
-	requestFailed: 'Request failed',
-	copyCodeAria: (language: string) => `Copy ${language} code block`
-} as const;
+import {
+	DEFAULT_WELCOME_MESSAGE,
+	DEFAULT_EMPTY_ASSISTANT_MESSAGE,
+	CHAT_BOTTOM_STICKY_THRESHOLD_PX,
+	TODO_BOTTOM_STICKY_THRESHOLD_PX,
+	COLLAPSE_TRANSITION_MS,
+	T,
+	vscode,
+	requireElement,
+	chatTitleBtn,
+	headerNewChatBtn,
+	chatTitle,
+	chatBody,
+	promptInput,
+	settingsBtn,
+	sendBtn,
+	composerShell,
+	todoPanel,
+	todoToggleBtn,
+	todoList,
+	todoSummary,
+	sessionDrawer,
+	sessionDrawerOverlay,
+	drawerNewChatBtn,
+	drawerSearch,
+	sessionList,
+	activeSessionLabel,
+	toolCallSlot,
+	loading,
+	state,
+	progressRunNodes,
+	progressRunSummaryEls,
+	progressRunCollapsed,
+	progressRunFinalizeTimeouts,
+	runPanelEls,
+	runPanelProgressCollapsed,
+	runPanelProgressTouched,
+	runPanelProgressFinalizeTimeouts,
+	runPanelToolStatusHideTimeouts,
+	runPanelToolStatusClearModes,
+	runPanelAutoScrollSuppressed,
+	renderedRunStates,
+	ChatRole,
+	ChatSession,
+	ChatTodo,
+	RenderableMessage,
+	ChatRunKind,
+	ChatRunStatus,
+	ChatRunEventKind,
+	ChatRunEvent,
+	ChatRun,
+	ChatStatusEntry,
+	ChatSessionViewState,
+	ChatTimelineEntry,
+	WebviewMessage
+} from './state.js';
 
 const markdown = new MarkdownIt({
 	html: false,
@@ -192,76 +73,7 @@ const markdown = new MarkdownIt({
 	}
 });
 
-const vscode = acquireVsCodeApi();
-const chatTitleBtn = requireElement<HTMLButtonElement>('#chatTitleBtn');
-const headerNewChatBtn = requireElement<HTMLButtonElement>('#headerNewChatBtn');
-const chatTitle = requireElement<HTMLSpanElement>('#chatTitle');
-const chatBody = requireElement<HTMLDivElement>('#chatBody');
-const promptInput = requireElement<HTMLTextAreaElement>('#prompt');
-const settingsBtn = requireElement<HTMLButtonElement>('#settingsBtn');
-const sendBtn = requireElement<HTMLButtonElement>('#sendBtn');
-const composerShell = requireElement<HTMLDivElement>('#composerShell');
-const todoPanel = requireElement<HTMLDivElement>('#todoPanel');
-const todoToggleBtn = requireElement<HTMLButtonElement>('#todoToggleBtn');
-const todoList = requireElement<HTMLDivElement>('#todoList');
-const todoSummary = requireElement<HTMLSpanElement>('#todoSummary');
-const sessionDrawer = requireElement<HTMLDivElement>('#sessionDrawer');
-const sessionDrawerOverlay = requireElement<HTMLDivElement>('#sessionDrawerOverlay');
-
-// Suppress CSS transitions on page load so the drawer's initial translateX(100%)
-// is applied instantly (no "slide out" flash on startup).
-sessionDrawer.style.transition = 'none';
-sessionDrawerOverlay.style.transition = 'none';
-requestAnimationFrame(() => requestAnimationFrame(() => {
-	sessionDrawer.style.transition = '';
-	sessionDrawerOverlay.style.transition = '';
-}));
-const drawerNewChatBtn = requireElement<HTMLButtonElement>('#drawerNewChatBtn');
-const drawerSearch = requireElement<HTMLInputElement>('#drawerSearch');
-const sessionList = requireElement<HTMLDivElement>('#sessionList');
-const activeSessionLabel = document.querySelector<HTMLDivElement>('#activeSessionLabel');
-const toolCallSlot = requireElement<HTMLDivElement>('#toolCallSlot');
-const loading = requireElement<HTMLDivElement>('#loading');
-
-let activeAssistantMessage: HTMLDivElement | null = null;
-let assistantRenderFrame: number | null = null;
-let currentSessionId = '';
-let isBusy = false;
-let sessionsState: ChatSession[] = [];
-let todosState: ChatTodo[] = [];
-let editingSessionId = '';
-let startAckTimeout: ReturnType<typeof setTimeout> | null = null;
-let transientToolStatusEl: HTMLDivElement | null = null;
-let transientToolStatusHideTimeout: ReturnType<typeof setTimeout> | null = null;
-let nextProgressRunId = 1;
-let activeProgressRunId = 0;
-const progressRunNodes = new Map<number, HTMLDivElement[]>();
-const progressRunSummaryEls = new Map<number, HTMLButtonElement>();
-const progressRunCollapsed = new Map<number, boolean>();
-const progressRunFinalizeTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
-let assistantSentDelta = false;
-let cancellationInFlight = false;
-let todoCollapsed = false;
-let mainToolStatusSuppressed = false;
-const runPanelEls = new Map<string, HTMLDivElement>();
-const runPanelProgressCollapsed = new Map<string, boolean>();
-const runPanelProgressTouched = new Set<string>();
-const runPanelProgressFinalizeTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-const runPanelToolStatusHideTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-const runPanelToolStatusClearModes = new Map<string, 'keep' | 'hide'>();
-const runPanelAutoScrollSuppressed = new Set<string>();
-const renderedRunStates = new Map<string, ChatRun>();
-let runPanelClockInterval: ReturnType<typeof setInterval> | null = null;
-
-function requireElement<T extends Element>(selector: string): T {
-	const element = document.querySelector<T>(selector);
-	if (!element) {
-		throw new Error(`Missing required element: ${selector}`);
-	}
-	return element;
-}
-
-function renderMarkdown(raw: string): string {
+export function renderMarkdown(raw: string): string {
 	const source = (raw || '').replace(/\r\n/g, '\n').trim();
 	if (!source) {
 		return '';
@@ -290,12 +102,12 @@ function renderMarkdown(raw: string): string {
 	return template.innerHTML;
 }
 
-function sanitizeLanguageLabel(language: string): string {
+export function sanitizeLanguageLabel(language: string): string {
 	const normalized = (language || '').trim().toLowerCase();
 	return normalized.replace(/[^a-z0-9#+.-]/g, '') || 'text';
 }
 
-function formatLanguageLabel(language: string): string {
+export function formatLanguageLabel(language: string): string {
 	const normalized = sanitizeLanguageLabel(language);
 	if (normalized === 'plaintext') {
 		return 'text';
@@ -330,7 +142,7 @@ function formatLanguageLabel(language: string): string {
 	return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
-function enhanceCodeBlock(preElement: HTMLPreElement): void {
+export function enhanceCodeBlock(preElement: HTMLPreElement): void {
 	if (preElement.parentElement?.classList.contains('md-code-block')) {
 		return;
 	}
@@ -363,7 +175,7 @@ function enhanceCodeBlock(preElement: HTMLPreElement): void {
 	wrapper.appendChild(preElement);
 }
 
-async function copyCodeBlock(trigger: HTMLButtonElement): Promise<void> {
+export async function copyCodeBlock(trigger: HTMLButtonElement): Promise<void> {
 	const block = trigger.closest('.md-code-block');
 	if (!(block instanceof HTMLElement)) {
 		return;
@@ -383,7 +195,7 @@ async function copyCodeBlock(trigger: HTMLButtonElement): Promise<void> {
 	}, 1200);
 }
 
-async function copyText(text: string): Promise<void> {
+export async function copyText(text: string): Promise<void> {
 	if (navigator.clipboard?.writeText) {
 		await navigator.clipboard.writeText(text);
 		return;
@@ -400,7 +212,7 @@ async function copyText(text: string): Promise<void> {
 	textarea.remove();
 }
 
-function isSafeHref(href: string): boolean {
+export function isSafeHref(href: string): boolean {
 	const raw = href.trim();
 	if (!raw) {
 		return false;
@@ -416,14 +228,14 @@ function isSafeHref(href: string): boolean {
 	}
 }
 
-function setLoading(isLoading: boolean): void {
-	isBusy = isLoading;
-	if (isLoading && startAckTimeout) {
-		clearTimeout(startAckTimeout);
-		startAckTimeout = null;
+export function setLoading(isLoading: boolean): void {
+	state.isBusy = isLoading;
+	if (isLoading && state.startAckTimeout) {
+		clearTimeout(state.startAckTimeout);
+		state.startAckTimeout = null;
 	}
 	if (isLoading) {
-		toolCallSlot.classList.toggle('hidden', mainToolStatusSuppressed);
+		toolCallSlot.classList.toggle('hidden', state.mainToolStatusSuppressed);
 		loading.classList.add('show');
 		sendBtn.disabled = false;
 		sendBtn.setAttribute('aria-label', 'Cancel');
@@ -442,7 +254,7 @@ function setLoading(isLoading: boolean): void {
 	settingsBtn.disabled = false;
 }
 
-function scrollChatToBottom(smooth: boolean): void {
+export function scrollChatToBottom(smooth: boolean): void {
 	const behavior: ScrollBehavior = smooth ? 'smooth' : 'auto';
 	if (typeof chatBody.scrollTo === 'function') {
 		chatBody.scrollTo({ top: chatBody.scrollHeight, behavior });
@@ -451,12 +263,12 @@ function scrollChatToBottom(smooth: boolean): void {
 	chatBody.scrollTop = chatBody.scrollHeight;
 }
 
-function isChatNearBottom(thresholdPx = CHAT_BOTTOM_STICKY_THRESHOLD_PX): boolean {
+export function isChatNearBottom(thresholdPx = CHAT_BOTTOM_STICKY_THRESHOLD_PX): boolean {
 	const distanceToBottom = chatBody.scrollHeight - chatBody.scrollTop - chatBody.clientHeight;
 	return distanceToBottom <= thresholdPx;
 }
 
-function appendMessage(role: ChatRole, text: string, smoothScrollToBottom = false): HTMLDivElement {
+export function appendMessage(role: ChatRole, text: string, smoothScrollToBottom = false): HTMLDivElement {
 	const el = document.createElement('div');
 	el.className = `message ${role}`;
 	el.dataset.rawMarkdown = text || '';
@@ -466,12 +278,12 @@ function appendMessage(role: ChatRole, text: string, smoothScrollToBottom = fals
 	return el;
 }
 
-function appendWelcomeMessage(): void {
+export function appendWelcomeMessage(): void {
 	const el = appendMessage('assistant', DEFAULT_WELCOME_MESSAGE);
 	el.dataset.welcomeMessage = 'true';
 }
 
-function removeWelcomeMessage(): void {
+export function removeWelcomeMessage(): void {
 	const messages = chatBody.querySelectorAll<HTMLDivElement>('.message.assistant');
 	messages.forEach((node) => {
 		if (node.dataset.welcomeMessage === 'true') {
@@ -490,7 +302,7 @@ function removeWelcomeMessage(): void {
 	});
 }
 
-function autoResizePrompt(): void {
+export function autoResizePrompt(): void {
 	promptInput.style.height = 'auto';
 	const maxHeight = 120;
 	const nextHeight = Math.min(promptInput.scrollHeight, maxHeight);
@@ -498,13 +310,13 @@ function autoResizePrompt(): void {
 	promptInput.style.overflowY = promptInput.scrollHeight > maxHeight ? 'auto' : 'hidden';
 }
 
-function setTodoCollapsed(collapsed: boolean): void {
+export function setTodoCollapsed(collapsed: boolean): void {
 	const distanceToBottom = chatBody.scrollHeight - chatBody.scrollTop - chatBody.clientHeight;
 	const shouldStickToBottom = distanceToBottom <= TODO_BOTTOM_STICKY_THRESHOLD_PX;
-	todoCollapsed = !!collapsed;
-	todoPanel.classList.toggle('collapsed', todoCollapsed);
-	todoToggleBtn.textContent = todoCollapsed ? '▸' : '▾';
-	todoToggleBtn.setAttribute('aria-expanded', String(!todoCollapsed));
+	state.todoCollapsed = !!collapsed;
+	todoPanel.classList.toggle('collapsed', state.todoCollapsed);
+	todoToggleBtn.textContent = state.todoCollapsed ? '▸' : '▾';
+	todoToggleBtn.setAttribute('aria-expanded', String(!state.todoCollapsed));
 	if (!shouldStickToBottom) {
 		return;
 	}
@@ -513,59 +325,59 @@ function setTodoCollapsed(collapsed: boolean): void {
 	});
 }
 
-function startAssistantMessage(): void {
-	if (!activeAssistantMessage) {
-		activeAssistantMessage = appendMessage('assistant', '');
+export function startAssistantMessage(): void {
+	if (!state.activeAssistantMessage) {
+		state.activeAssistantMessage = appendMessage('assistant', '');
 	}
 }
 
 // Render the accumulated markdown once and clear any pending frame. Re-rendering
 // the full message re-parses/sanitizes/highlights everything, so we coalesce the
 // token stream to at most one render per animation frame instead of one per delta.
-function flushAssistantRender(): void {
-	if (assistantRenderFrame !== null) {
-		cancelAnimationFrame(assistantRenderFrame);
-		assistantRenderFrame = null;
+export function flushAssistantRender(): void {
+	if (state.assistantRenderFrame !== null) {
+		cancelAnimationFrame(state.assistantRenderFrame);
+		state.assistantRenderFrame = null;
 	}
-	if (!activeAssistantMessage) {
+	if (!state.activeAssistantMessage) {
 		return;
 	}
-	activeAssistantMessage.innerHTML = renderMarkdown(activeAssistantMessage.dataset.rawMarkdown || '');
+	state.activeAssistantMessage.innerHTML = renderMarkdown(state.activeAssistantMessage.dataset.rawMarkdown || '');
 	chatBody.scrollTop = chatBody.scrollHeight;
 }
 
-function appendAssistantDelta(text: string): void {
+export function appendAssistantDelta(text: string): void {
 	startAssistantMessage();
-	if (!activeAssistantMessage) {
+	if (!state.activeAssistantMessage) {
 		return;
 	}
-	activeAssistantMessage.dataset.rawMarkdown = (activeAssistantMessage.dataset.rawMarkdown || '') + text;
-	if (assistantRenderFrame === null) {
-		assistantRenderFrame = requestAnimationFrame(() => {
-			assistantRenderFrame = null;
+	state.activeAssistantMessage.dataset.rawMarkdown = (state.activeAssistantMessage.dataset.rawMarkdown || '') + text;
+	if (state.assistantRenderFrame === null) {
+		state.assistantRenderFrame = requestAnimationFrame(() => {
+			state.assistantRenderFrame = null;
 			flushAssistantRender();
 		});
 	}
 }
 
-function finishAssistantMessage(): void {
+export function finishAssistantMessage(): void {
 	// Ensure the final, complete markdown is rendered even if a frame was pending.
 	flushAssistantRender();
-	if (!activeAssistantMessage) {
+	if (!state.activeAssistantMessage) {
 		appendMessage('assistant', DEFAULT_EMPTY_ASSISTANT_MESSAGE);
 		setLoading(false);
 		return;
 	}
-	const raw = activeAssistantMessage.dataset.rawMarkdown || '';
+	const raw = state.activeAssistantMessage.dataset.rawMarkdown || '';
 	if (!raw.trim()) {
-		activeAssistantMessage.dataset.rawMarkdown = DEFAULT_EMPTY_ASSISTANT_MESSAGE;
-		activeAssistantMessage.innerHTML = renderMarkdown(DEFAULT_EMPTY_ASSISTANT_MESSAGE);
+		state.activeAssistantMessage.dataset.rawMarkdown = DEFAULT_EMPTY_ASSISTANT_MESSAGE;
+		state.activeAssistantMessage.innerHTML = renderMarkdown(DEFAULT_EMPTY_ASSISTANT_MESSAGE);
 	}
-	activeAssistantMessage = null;
+	state.activeAssistantMessage = null;
 	setLoading(false);
 }
 
-function resetChat(): void {
+export function resetChat(): void {
 	chatBody.querySelectorAll('.message').forEach((node) => node.remove());
 	chatBody.querySelectorAll('.tool-status').forEach((node) => node.remove());
 	chatBody.querySelectorAll('.run-panel').forEach((node) => node.remove());
@@ -595,24 +407,24 @@ function resetChat(): void {
 	runPanelToolStatusHideTimeouts.clear();
 	runPanelAutoScrollSuppressed.clear();
 	renderedRunStates.clear();
-	if (runPanelClockInterval) {
-		clearInterval(runPanelClockInterval);
-		runPanelClockInterval = null;
+	if (state.runPanelClockInterval) {
+		clearInterval(state.runPanelClockInterval);
+		state.runPanelClockInterval = null;
 	}
-	activeProgressRunId = 0;
-	assistantSentDelta = false;
-	cancellationInFlight = false;
-	transientToolStatusEl = null;
-	if (assistantRenderFrame !== null) {
-		cancelAnimationFrame(assistantRenderFrame);
-		assistantRenderFrame = null;
+	state.activeProgressRunId = 0;
+	state.assistantSentDelta = false;
+	state.cancellationInFlight = false;
+	state.transientToolStatusEl = null;
+	if (state.assistantRenderFrame !== null) {
+		cancelAnimationFrame(state.assistantRenderFrame);
+		state.assistantRenderFrame = null;
 	}
 	appendWelcomeMessage();
-	activeAssistantMessage = null;
+	state.activeAssistantMessage = null;
 	setLoading(false);
 }
 
-function getRunStatusLabel(status: ChatRunStatus): string {
+export function getRunStatusLabel(status: ChatRunStatus): string {
 	if (status === 'running') {
 		return T.runStatus.running;
 	}
@@ -625,7 +437,7 @@ function getRunStatusLabel(status: ChatRunStatus): string {
 	return T.runStatus.failed;
 }
 
-function normalizeElapsedFallback(text: string): string {
+export function normalizeElapsedFallback(text: string): string {
 	const normalized = (text || '').trim();
 	if (!normalized) {
 		return '';
@@ -637,7 +449,7 @@ function normalizeElapsedFallback(text: string): string {
 	return normalized;
 }
 
-function formatRunDurationSeconds(durationMs: number, includeFraction: boolean): string {
+export function formatRunDurationSeconds(durationMs: number, includeFraction: boolean): string {
 	const safeDurationMs = Math.max(0, durationMs);
 	const seconds = safeDurationMs / 1000;
 	if (!includeFraction) {
@@ -647,7 +459,7 @@ function formatRunDurationSeconds(durationMs: number, includeFraction: boolean):
 	return `${Number(seconds.toFixed(precision)).toString()} ${T.durationSuffix}`;
 }
 
-function getRunDurationLabel(run: ChatRun, now = Date.now()): string {
+export function getRunDurationLabel(run: ChatRun, now = Date.now()): string {
 	if (!Number.isFinite(run.startedAt)) {
 		return run.status === 'running' ? '' : normalizeElapsedFallback(run.elapsedText || '');
 	}
@@ -658,11 +470,11 @@ function getRunDurationLabel(run: ChatRun, now = Date.now()): string {
 	return T.took(formatRunDurationSeconds(endedAt - run.startedAt, true));
 }
 
-function getRunMetaText(run: ChatRun, now = Date.now()): string {
+export function getRunMetaText(run: ChatRun, now = Date.now()): string {
 	return [getRunStatusLabel(run.status), getRunDurationLabel(run, now)].filter(Boolean).join(' · ');
 }
 
-function refreshRunningRunPanelMeta(): void {
+export function refreshRunningRunPanelMeta(): void {
 	let hasRunningRun = false;
 	const now = Date.now();
 	renderedRunStates.forEach((run, runId) => {
@@ -679,30 +491,30 @@ function refreshRunningRunPanelMeta(): void {
 			meta.textContent = getRunMetaText(run, now);
 		}
 	});
-	if (!hasRunningRun && runPanelClockInterval) {
-		clearInterval(runPanelClockInterval);
-		runPanelClockInterval = null;
+	if (!hasRunningRun && state.runPanelClockInterval) {
+		clearInterval(state.runPanelClockInterval);
+		state.runPanelClockInterval = null;
 	}
 }
 
-function syncRunPanelClock(): void {
+export function syncRunPanelClock(): void {
 	const hasRunningRun = Array.from(renderedRunStates.values()).some((run) => run.status === 'running');
 	if (hasRunningRun) {
-		if (!runPanelClockInterval) {
-			runPanelClockInterval = setInterval(() => {
+		if (!state.runPanelClockInterval) {
+			state.runPanelClockInterval = setInterval(() => {
 				refreshRunningRunPanelMeta();
 			}, 1000);
 		}
 		refreshRunningRunPanelMeta();
 		return;
 	}
-	if (runPanelClockInterval) {
-		clearInterval(runPanelClockInterval);
-		runPanelClockInterval = null;
+	if (state.runPanelClockInterval) {
+		clearInterval(state.runPanelClockInterval);
+		state.runPanelClockInterval = null;
 	}
 }
 
-function findRunInsertionAnchor(runId: string): Element {
+export function findRunInsertionAnchor(runId: string): Element {
 	const existingPanel = runPanelEls.get(runId);
 	if (existingPanel?.isConnected) {
 		return existingPanel;
@@ -710,7 +522,7 @@ function findRunInsertionAnchor(runId: string): Element {
 	return toolCallSlot;
 }
 
-function animateCollapsibleSection(
+export function animateCollapsibleSection(
 	element: HTMLDivElement,
 	collapsed: boolean,
 	expandedMaxHeight: string,
@@ -737,7 +549,7 @@ function animateCollapsibleSection(
 	});
 }
 
-function setRunPanelCollapsed(panel: HTMLDivElement, collapsed: boolean): void {
+export function setRunPanelCollapsed(panel: HTMLDivElement, collapsed: boolean): void {
 	const body = panel.querySelector<HTMLDivElement>('.run-panel-body');
 	const summary = panel.querySelector<HTMLDivElement>('.run-panel-summary');
 	const toggle = panel.querySelector<HTMLButtonElement>('.run-panel-toggle');
@@ -773,11 +585,11 @@ function setRunPanelCollapsed(panel: HTMLDivElement, collapsed: boolean): void {
 	animateCollapsibleSection(body, false, 'none', () => panel.classList.contains('collapsed'));
 }
 
-function getRunPanelProgressNodes(list: HTMLDivElement): HTMLDivElement[] {
+export function getRunPanelProgressNodes(list: HTMLDivElement): HTMLDivElement[] {
 	return Array.from(list.querySelectorAll<HTMLDivElement>('.progress-entry'));
 }
 
-function setRunProgressCollapsed(runId: string, collapsed: boolean): void {
+export function setRunProgressCollapsed(runId: string, collapsed: boolean): void {
 	const panel = runPanelEls.get(runId);
 	if (!panel) {
 		return;
@@ -834,7 +646,7 @@ function setRunProgressCollapsed(runId: string, collapsed: boolean): void {
 		: T.progressExpanded(nodes.length);
 }
 
-function createRunPanel(run: ChatRun): HTMLDivElement {
+export function createRunPanel(run: ChatRun): HTMLDivElement {
 	const panel = document.createElement('div');
 	panel.className = 'run-panel';
 	panel.dataset.runId = run.id;
@@ -907,19 +719,19 @@ function createRunPanel(run: ChatRun): HTMLDivElement {
 	return panel;
 }
 
-function setMainToolStatusSuppressed(suppressed: boolean): void {
-	mainToolStatusSuppressed = !!suppressed;
-	if (mainToolStatusSuppressed) {
+export function setMainToolStatusSuppressed(suppressed: boolean): void {
+	state.mainToolStatusSuppressed = !!suppressed;
+	if (state.mainToolStatusSuppressed) {
 		clearTransientToolStatus(true);
 		toolCallSlot.classList.add('hidden');
 		return;
 	}
-	if (isBusy) {
+	if (state.isBusy) {
 		toolCallSlot.classList.add('hidden');
 	}
 }
 
-function keepRunPanelTransientToolStatusAtBottom(runId: string): void {
+export function keepRunPanelTransientToolStatusAtBottom(runId: string): void {
 	const panel = runPanelEls.get(runId);
 	if (!panel) {
 		return;
@@ -932,7 +744,7 @@ function keepRunPanelTransientToolStatusAtBottom(runId: string): void {
 	body.appendChild(toolSlot);
 }
 
-function clearRunPanelTransientToolStatus(runId: string, immediate = false, keepVisible = false): void {
+export function clearRunPanelTransientToolStatus(runId: string, immediate = false, keepVisible = false): void {
 	const panel = runPanelEls.get(runId);
 	if (!panel) {
 		return;
@@ -977,7 +789,7 @@ function clearRunPanelTransientToolStatus(runId: string, immediate = false, keep
 	runPanelToolStatusHideTimeouts.set(runId, timeoutId);
 }
 
-function setRunPanelTransientToolStatus(runId: string, text: string): void {
+export function setRunPanelTransientToolStatus(runId: string, text: string): void {
 	const panel = runPanelEls.get(runId);
 	if (!panel) {
 		return;
@@ -1008,14 +820,14 @@ function setRunPanelTransientToolStatus(runId: string, text: string): void {
 	toolSlot.classList.add('tool-status-switch');
 }
 
-function renderRunPanel(run: ChatRun): void {
+export function renderRunPanel(run: ChatRun): void {
 	const shouldStickToBottom = isChatNearBottom();
 	const suppressAutoScroll = runPanelAutoScrollSuppressed.delete(run.id);
 	const existingPanel = runPanelEls.get(run.id);
 	renderedRunStates.set(run.id, run);
-	if (!existingPanel && activeProgressRunId) {
-		setProgressRunCollapsed(activeProgressRunId, true);
-		activeProgressRunId = 0;
+	if (!existingPanel && state.activeProgressRunId) {
+		setProgressRunCollapsed(state.activeProgressRunId, true);
+		state.activeProgressRunId = 0;
 	}
 	const panel = existingPanel ?? createRunPanel(run);
 	const title = panel.querySelector<HTMLDivElement>('.run-panel-title');
@@ -1102,7 +914,7 @@ function renderRunPanel(run: ChatRun): void {
 	syncRunPanelClock();
 }
 
-function getProgressRunNodes(runId: number): HTMLDivElement[] {
+export function getProgressRunNodes(runId: number): HTMLDivElement[] {
 	const nodes = progressRunNodes.get(runId) || [];
 	const activeNodes = nodes.filter((node) => !!node && node.isConnected);
 	if (activeNodes.length !== nodes.length) {
@@ -1111,11 +923,11 @@ function getProgressRunNodes(runId: number): HTMLDivElement[] {
 	return activeNodes;
 }
 
-function keepTransientToolStatusAtBottom(): void {
+export function keepTransientToolStatusAtBottom(): void {
 	chatBody.insertBefore(toolCallSlot, loading);
 }
 
-function ensureProgressRunSummary(runId: number): HTMLButtonElement {
+export function ensureProgressRunSummary(runId: number): HTMLButtonElement {
 	const currentSummary = progressRunSummaryEls.get(runId);
 	if (currentSummary && currentSummary.isConnected) {
 		return currentSummary;
@@ -1133,7 +945,7 @@ function ensureProgressRunSummary(runId: number): HTMLButtonElement {
 	return summary;
 }
 
-function setProgressRunCollapsed(runId: number, collapsed: boolean): void {
+export function setProgressRunCollapsed(runId: number, collapsed: boolean): void {
 	const nextCollapsed = !!collapsed;
 	progressRunCollapsed.set(runId, nextCollapsed);
 	const previousTimeout = progressRunFinalizeTimeouts.get(runId);
@@ -1189,24 +1001,24 @@ function setProgressRunCollapsed(runId: number, collapsed: boolean): void {
 		: T.progressExpanded(nodes.length);
 }
 
-function renderTodos(todos: ChatTodo[]): void {
-	todosState = Array.isArray(todos) ? todos : [];
+export function renderTodos(todos: ChatTodo[]): void {
+	state.todosState = Array.isArray(todos) ? todos : [];
 	todoList.innerHTML = '';
-	if (todosState.length === 0) {
+	if (state.todosState.length === 0) {
 		todoPanel.classList.remove('show');
 		composerShell.classList.remove('has-todos');
 		todoSummary.textContent = '';
-		setTodoCollapsed(todoCollapsed);
+		setTodoCollapsed(state.todoCollapsed);
 		return;
 	}
 
-	const doneCount = todosState.filter((todo) => !!todo.completed).length;
-	todoSummary.textContent = `${doneCount}/${todosState.length} completed`;
+	const doneCount = state.todosState.filter((todo) => !!todo.completed).length;
+	todoSummary.textContent = `${doneCount}/${state.todosState.length} completed`;
 	todoPanel.classList.add('show');
 	composerShell.classList.add('has-todos');
-	setTodoCollapsed(todoCollapsed);
+	setTodoCollapsed(state.todoCollapsed);
 
-	todosState.forEach((todo, index) => {
+	state.todosState.forEach((todo, index) => {
 		const row = document.createElement('div');
 		row.className = `todo-item${todo.completed ? ' done' : ''}`;
 		const marker = document.createElement('span');
@@ -1221,9 +1033,9 @@ function renderTodos(todos: ChatTodo[]): void {
 	});
 }
 
-function sendMessage(): void {
-	if (isBusy) {
-		cancellationInFlight = true;
+export function sendMessage(): void {
+	if (state.isBusy) {
+		state.cancellationInFlight = true;
 		vscode.postMessage({ type: 'chat:cancelGeneration' });
 		return;
 	}
@@ -1238,24 +1050,24 @@ function sendMessage(): void {
 	promptInput.value = '';
 	autoResizePrompt();
 	vscode.postMessage({ type: 'chat:userMessage', text });
-	if (startAckTimeout) {
-		clearTimeout(startAckTimeout);
+	if (state.startAckTimeout) {
+		clearTimeout(state.startAckTimeout);
 	}
-	startAckTimeout = setTimeout(() => {
-		if (!isBusy) {
+	state.startAckTimeout = setTimeout(() => {
+		if (!state.isBusy) {
 			appendMessage('assistant', T.requestNotProcessed);
 		}
 	}, 5000);
 }
 
-function getDrawerFocusable(): HTMLElement[] {
+export function getDrawerFocusable(): HTMLElement[] {
 	const selector = 'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])';
 	return Array.from(sessionDrawer.querySelectorAll<HTMLElement>(selector)).filter(
 		(el) => !el.hasAttribute('disabled') && el.offsetParent !== null
 	);
 }
 
-function openSessionDrawer(): void {
+export function openSessionDrawer(): void {
 	sessionDrawer.classList.add('open');
 	sessionDrawerOverlay.classList.add('open');
 	sessionDrawer.setAttribute('aria-hidden', 'false');
@@ -1263,13 +1075,13 @@ function openSessionDrawer(): void {
 	setTimeout(() => drawerSearch.focus(), 50);
 }
 
-function closeSessionDrawer(): void {
+export function closeSessionDrawer(): void {
 	const wasOpen = sessionDrawer.classList.contains('open');
 	sessionDrawer.classList.remove('open');
 	sessionDrawerOverlay.classList.remove('open');
 	sessionDrawer.setAttribute('aria-hidden', 'true');
 	chatTitleBtn.setAttribute('aria-expanded', 'false');
-	editingSessionId = '';
+	state.editingSessionId = '';
 	drawerSearch.value = '';
 	filterSessions('');
 	// Return focus to the trigger when the user dismissed an open drawer.
@@ -1278,7 +1090,7 @@ function closeSessionDrawer(): void {
 	}
 }
 
-function toggleSessionDrawer(): void {
+export function toggleSessionDrawer(): void {
 	if (sessionDrawer.classList.contains('open')) {
 		closeSessionDrawer();
 		return;
@@ -1286,7 +1098,7 @@ function toggleSessionDrawer(): void {
 	openSessionDrawer();
 }
 
-function filterSessions(query: string): void {
+export function filterSessions(query: string): void {
 	const q = query.trim().toLowerCase();
 	sessionList.querySelectorAll<HTMLDivElement>('.session-card').forEach((card) => {
 		const title = (card.dataset.title || '').toLowerCase();
@@ -1294,17 +1106,17 @@ function filterSessions(query: string): void {
 	});
 }
 
-function renderSessions(sessions: ChatSession[], activeSessionId: string): void {
-	sessionsState = Array.isArray(sessions) ? sessions : [];
+export function renderSessions(sessions: ChatSession[], activeSessionId: string): void {
+	state.sessionsState = Array.isArray(sessions) ? sessions : [];
 	sessionList.innerHTML = '';
-	currentSessionId = activeSessionId || '';
+	state.currentSessionId = activeSessionId || '';
 
-	sessionsState.forEach((session) => {
+	state.sessionsState.forEach((session) => {
 		const row = document.createElement('div');
-		row.className = `session-card${session.id === currentSessionId ? ' active' : ''}`;
+		row.className = `session-card${session.id === state.currentSessionId ? ' active' : ''}`;
 		row.dataset.title = (session.title || '').toLowerCase();
 
-		if (editingSessionId === session.id) {
+		if (state.editingSessionId === session.id) {
 			const input = document.createElement('input');
 			input.type = 'text';
 			input.className = 'session-inline-input';
@@ -1320,7 +1132,7 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 			saveBtn.className = 'session-tool primary';
 			saveBtn.textContent = 'Save';
 			saveBtn.addEventListener('click', () => {
-				if (isBusy) {
+				if (state.isBusy) {
 					return;
 				}
 				const title = input.value.trim();
@@ -1328,7 +1140,7 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 					input.focus();
 					return;
 				}
-				editingSessionId = '';
+				state.editingSessionId = '';
 				vscode.postMessage({ type: 'chat:renameSession', sessionId: session.id, title });
 			});
 
@@ -1337,8 +1149,8 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 			cancelBtn.className = 'session-tool';
 			cancelBtn.textContent = 'Cancel';
 			cancelBtn.addEventListener('click', () => {
-				editingSessionId = '';
-				renderSessions(sessionsState, currentSessionId);
+				state.editingSessionId = '';
+				renderSessions(state.sessionsState, state.currentSessionId);
 			});
 
 			input.addEventListener('keydown', (event) => {
@@ -1365,7 +1177,7 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 		item.className = 'session-card-main';
 		item.textContent = session.title || 'New Chat';
 		item.addEventListener('click', () => {
-			if (isBusy || !session.id || session.id === currentSessionId) {
+			if (state.isBusy || !session.id || session.id === state.currentSessionId) {
 				return;
 			}
 			closeSessionDrawer();
@@ -1380,11 +1192,11 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 		renameBtn.className = 'session-tool';
 		renameBtn.textContent = 'Rename';
 		renameBtn.addEventListener('click', () => {
-			if (isBusy || !session.id) {
+			if (state.isBusy || !session.id) {
 				return;
 			}
-			editingSessionId = session.id;
-			renderSessions(sessionsState, currentSessionId);
+			state.editingSessionId = session.id;
+			renderSessions(state.sessionsState, state.currentSessionId);
 		});
 
 		const deleteBtn = document.createElement('button');
@@ -1392,7 +1204,7 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 		deleteBtn.className = 'session-tool';
 		deleteBtn.textContent = 'Delete';
 		deleteBtn.addEventListener('click', () => {
-			if (isBusy || !session.id) {
+			if (state.isBusy || !session.id) {
 				return;
 			}
 			vscode.postMessage({ type: 'chat:deleteSession', sessionId: session.id });
@@ -1405,7 +1217,7 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 		sessionList.appendChild(row);
 	});
 
-	const active = sessions.find((session) => session.id === currentSessionId);
+	const active = sessions.find((session) => session.id === state.currentSessionId);
 	const activeTitle = (active && active.title) || 'New Chat';
 	chatTitle.textContent = activeTitle;
 	if (activeSessionLabel) {
@@ -1414,63 +1226,51 @@ function renderSessions(sessions: ChatSession[], activeSessionId: string): void 
 	filterSessions(drawerSearch.value);
 }
 
-function renderSessionHistory(messages: RenderableMessage[]): void {
-	resetChat();
-	if (!Array.isArray(messages) || messages.length === 0) {
-		return;
-	}
-
-	chatBody.querySelectorAll('.message').forEach((node) => node.remove());
-	messages.forEach((message) => {
-		appendMessage(message.role === 'user' ? 'user' : 'assistant', message.text || '');
-	});
-}
-
-function clearTransientToolStatus(forceHide = false): void {
-	if (transientToolStatusHideTimeout) {
-		clearTimeout(transientToolStatusHideTimeout);
-		transientToolStatusHideTimeout = null;
+export function clearTransientToolStatus(forceHide = false): void {
+	if (state.transientToolStatusHideTimeout) {
+		clearTimeout(state.transientToolStatusHideTimeout);
+		state.transientToolStatusHideTimeout = null;
 	}
 	toolCallSlot.classList.add('empty');
 	toolCallSlot.classList.remove('tool-status-fade-out');
 	toolCallSlot.textContent = '';
-	transientToolStatusEl = null;
-	if (!isBusy || forceHide || mainToolStatusSuppressed) {
+	state.transientToolStatusEl = null;
+	if (!state.isBusy || forceHide || state.mainToolStatusSuppressed) {
 		toolCallSlot.classList.add('hidden');
 	}
 }
 
-function fadeTransientToolStatus(): void {
-	if (!transientToolStatusEl) {
+export function fadeTransientToolStatus(): void {
+	if (!state.transientToolStatusEl) {
 		return;
 	}
-	if (transientToolStatusHideTimeout) {
-		clearTimeout(transientToolStatusHideTimeout);
+	if (state.transientToolStatusHideTimeout) {
+		clearTimeout(state.transientToolStatusHideTimeout);
 	}
-	const active = transientToolStatusEl;
-	transientToolStatusHideTimeout = setTimeout(() => {
-		if (transientToolStatusEl !== active) {
+	const active = state.transientToolStatusEl;
+	state.transientToolStatusHideTimeout = setTimeout(() => {
+		if (state.transientToolStatusEl !== active) {
 			return;
 		}
 		toolCallSlot.classList.add('tool-status-fade-out');
-		transientToolStatusHideTimeout = setTimeout(() => {
-			if (transientToolStatusEl === active) {
+		state.transientToolStatusHideTimeout = setTimeout(() => {
+			if (state.transientToolStatusEl === active) {
 				clearTransientToolStatus();
 			}
 		}, 220);
 	}, 1500);
 }
 
-function appendTransientToolStatus(text: string): void {
-	if (mainToolStatusSuppressed) {
+export function appendTransientToolStatus(text: string): void {
+	if (state.mainToolStatusSuppressed) {
 		return;
 	}
-	transientToolStatusEl = toolCallSlot;
+	state.transientToolStatusEl = toolCallSlot;
 	keepTransientToolStatusAtBottom();
 
-	if (transientToolStatusHideTimeout) {
-		clearTimeout(transientToolStatusHideTimeout);
-		transientToolStatusHideTimeout = null;
+	if (state.transientToolStatusHideTimeout) {
+		clearTimeout(state.transientToolStatusHideTimeout);
+		state.transientToolStatusHideTimeout = null;
 	}
 
 	toolCallSlot.classList.remove('hidden');
@@ -1480,38 +1280,38 @@ function appendTransientToolStatus(text: string): void {
 	toolCallSlot.textContent = text;
 	void toolCallSlot.offsetWidth;
 	toolCallSlot.classList.add('tool-status-switch');
-	activeAssistantMessage = null;
+	state.activeAssistantMessage = null;
 	chatBody.scrollTop = chatBody.scrollHeight;
 }
 
-function appendToolStatus(text: string, transient: boolean): void {
-	if (mainToolStatusSuppressed) {
+export function appendToolStatus(text: string, transient: boolean): void {
+	if (state.mainToolStatusSuppressed) {
 		return;
 	}
 	if (transient) {
 		appendTransientToolStatus(text);
 		return;
 	}
-	if (!activeProgressRunId) {
-		activeProgressRunId = nextProgressRunId;
-		nextProgressRunId += 1;
+	if (!state.activeProgressRunId) {
+		state.activeProgressRunId = state.nextProgressRunId;
+		state.nextProgressRunId += 1;
 	}
 	const el = document.createElement('div');
 	el.className = 'tool-status progress-entry';
 	el.textContent = text;
 	el.classList.add('progress-entry-appear');
-	el.dataset.progressRunId = String(activeProgressRunId);
-	const runNodes = progressRunNodes.get(activeProgressRunId) || [];
+	el.dataset.progressRunId = String(state.activeProgressRunId);
+	const runNodes = progressRunNodes.get(state.activeProgressRunId) || [];
 	runNodes.push(el);
-	progressRunNodes.set(activeProgressRunId, runNodes);
+	progressRunNodes.set(state.activeProgressRunId, runNodes);
 	chatBody.insertBefore(el, toolCallSlot);
 	keepTransientToolStatusAtBottom();
-	activeAssistantMessage = null;
-	setProgressRunCollapsed(activeProgressRunId, false);
+	state.activeAssistantMessage = null;
+	setProgressRunCollapsed(state.activeProgressRunId, false);
 	chatBody.scrollTop = chatBody.scrollHeight;
 }
 
-function appendElapsedStatus(text: string): void {
+export function appendElapsedStatus(text: string): void {
 	const el = document.createElement('div');
 	el.className = 'tool-status elapsed-status';
 	el.textContent = text;
@@ -1521,7 +1321,7 @@ function appendElapsedStatus(text: string): void {
 	chatBody.scrollTop = chatBody.scrollHeight;
 }
 
-function appendHistoricalStatus(text: string, kind: ChatStatusEntry['kind'], runId: number): void {
+export function appendHistoricalStatus(text: string, kind: ChatStatusEntry['kind'], runId: number): void {
 	if (kind === 'elapsed') {
 		const el = document.createElement('div');
 		el.className = 'tool-status elapsed-status';
@@ -1531,8 +1331,8 @@ function appendHistoricalStatus(text: string, kind: ChatStatusEntry['kind'], run
 		return;
 	}
 
-	const normalizedRunId = Number.isFinite(runId) && runId > 0 ? runId : nextProgressRunId++;
-	nextProgressRunId = Math.max(nextProgressRunId, normalizedRunId + 1);
+	const normalizedRunId = Number.isFinite(runId) && runId > 0 ? runId : state.nextProgressRunId++;
+	state.nextProgressRunId = Math.max(state.nextProgressRunId, normalizedRunId + 1);
 	const el = document.createElement('div');
 	el.className = 'tool-status progress-entry';
 	el.textContent = text;
@@ -1544,14 +1344,14 @@ function appendHistoricalStatus(text: string, kind: ChatStatusEntry['kind'], run
 	keepTransientToolStatusAtBottom();
 }
 
-function renderSessionState(state: ChatSessionViewState | null): void {
+export function renderSessionState(viewState: ChatSessionViewState | null): void {
 	resetChat();
-	if (!state || typeof state !== 'object') {
+	if (!viewState || typeof viewState !== 'object') {
 		return;
 	}
 
-	const timeline = Array.isArray(state.timeline) ? state.timeline : [];
-	const runs = new Map((Array.isArray(state.runs) ? state.runs : []).map((run) => [run.id, run]));
+	const timeline = Array.isArray(viewState.timeline) ? viewState.timeline : [];
+	const runs = new Map((Array.isArray(viewState.runs) ? viewState.runs : []).map((run) => [run.id, run]));
 	const hasUserMessage = timeline.some((entry) => entry.kind === 'message' && entry.role === 'user');
 	if (hasUserMessage) {
 		removeWelcomeMessage();
@@ -1571,9 +1371,9 @@ function renderSessionState(state: ChatSessionViewState | null): void {
 		appendHistoricalStatus(entry.text || '', entry.statusKind || 'progress', Number(entry.runId));
 	});
 
-	const isGenerating = !!state.isGenerating;
-	const activeAssistantText = typeof state.activeAssistantText === 'string' ? state.activeAssistantText : '';
-	const activeRunId = Number(state.activeRunId);
+	const isGenerating = !!viewState.isGenerating;
+	const activeAssistantText = typeof viewState.activeAssistantText === 'string' ? viewState.activeAssistantText : '';
+	const activeRunId = Number(viewState.activeRunId);
 	Array.from(progressRunNodes.keys())
 		.sort((left, right) => left - right)
 		.forEach((runId) => {
@@ -1582,199 +1382,20 @@ function renderSessionState(state: ChatSessionViewState | null): void {
 		});
 	if (isGenerating) {
 		if (Number.isFinite(activeRunId) && activeRunId > 0) {
-			activeProgressRunId = activeRunId;
-			nextProgressRunId = Math.max(nextProgressRunId, activeRunId + 1);
+			state.activeProgressRunId = activeRunId;
+			state.nextProgressRunId = Math.max(state.nextProgressRunId, activeRunId + 1);
 		} else {
-			activeProgressRunId = nextProgressRunId;
-			nextProgressRunId += 1;
+			state.activeProgressRunId = state.nextProgressRunId;
+			state.nextProgressRunId += 1;
 		}
 		if (activeAssistantText) {
-			activeAssistantMessage = appendMessage('assistant', activeAssistantText);
+			state.activeAssistantMessage = appendMessage('assistant', activeAssistantText);
 		}
 		setLoading(true);
 		return;
 	}
 
-	activeProgressRunId = 0;
-	activeAssistantMessage = null;
+	state.activeProgressRunId = 0;
+	state.activeAssistantMessage = null;
 	setLoading(false);
 }
-
-sendBtn.addEventListener('click', sendMessage);
-todoToggleBtn.addEventListener('click', () => {
-	setTodoCollapsed(!todoCollapsed);
-});
-settingsBtn.addEventListener('click', () => {
-	if (isBusy) {
-		return;
-	}
-	vscode.postMessage({ type: 'chat:openSettings' });
-});
-chatTitleBtn.addEventListener('click', () => {
-	if (!isBusy) {
-		toggleSessionDrawer();
-	}
-});
-headerNewChatBtn.addEventListener('click', () => {
-	if (isBusy) {
-		return;
-	}
-	closeSessionDrawer();
-	vscode.postMessage({ type: 'chat:newSession' });
-});
-sessionDrawerOverlay.addEventListener('click', () => {
-	closeSessionDrawer();
-});
-// Trap Tab within the drawer while it is open (modal dialog semantics).
-sessionDrawer.addEventListener('keydown', (event) => {
-	if (event.key !== 'Tab' || !sessionDrawer.classList.contains('open')) {
-		return;
-	}
-	const focusable = getDrawerFocusable();
-	if (focusable.length === 0) {
-		return;
-	}
-	const first = focusable[0];
-	const last = focusable[focusable.length - 1];
-	const active = document.activeElement as HTMLElement | null;
-	if (event.shiftKey && (active === first || !sessionDrawer.contains(active))) {
-		event.preventDefault();
-		last.focus();
-	} else if (!event.shiftKey && active === last) {
-		event.preventDefault();
-		first.focus();
-	}
-});
-document.addEventListener('keydown', (event) => {
-	if (event.key !== 'Escape') {
-		return;
-	}
-	closeSessionDrawer();
-});
-drawerSearch.addEventListener('input', () => {
-	filterSessions(drawerSearch.value);
-});
-drawerNewChatBtn.addEventListener('click', () => {
-	if (isBusy) {
-		return;
-	}
-	closeSessionDrawer();
-	vscode.postMessage({ type: 'chat:newSession' });
-});
-chatBody.addEventListener('click', (event) => {
-	const target = event.target;
-	if (!(target instanceof HTMLElement)) {
-		return;
-	}
-	const button = target.closest('.md-code-copy');
-	if (!(button instanceof HTMLButtonElement)) {
-		return;
-	}
-	void copyCodeBlock(button);
-});
-
-promptInput.addEventListener('keydown', (event) => {
-	if (event.isComposing) {
-		return;
-	}
-	if (event.key === 'Enter' && !event.shiftKey) {
-		event.preventDefault();
-		sendMessage();
-	}
-});
-promptInput.addEventListener('input', autoResizePrompt);
-autoResizePrompt();
-setTodoCollapsed(false);
-
-window.addEventListener('message', (event: MessageEvent<SidebarMessage>) => {
-	const message = event.data || {};
-	if (message.type === 'chat:assistantStart') {
-		activeAssistantMessage = null;
-		clearTransientToolStatus();
-		activeProgressRunId = nextProgressRunId;
-		nextProgressRunId += 1;
-		assistantSentDelta = false;
-		cancellationInFlight = false;
-		setLoading(true);
-	}
-	if (message.type === 'chat:assistantDelta') {
-		if (activeProgressRunId && !cancellationInFlight) {
-			setProgressRunCollapsed(activeProgressRunId, true);
-		}
-		assistantSentDelta = true;
-		if (!cancellationInFlight) {
-			activeProgressRunId = 0;
-		}
-		appendAssistantDelta(message.text || '');
-	}
-	if (message.type === 'chat:assistantDone') {
-		if (cancellationInFlight) {
-			fadeTransientToolStatus();
-		} else {
-			clearTransientToolStatus();
-		}
-		if (!assistantSentDelta && activeProgressRunId && !cancellationInFlight) {
-			setProgressRunCollapsed(activeProgressRunId, true);
-		}
-		activeProgressRunId = 0;
-		assistantSentDelta = false;
-		cancellationInFlight = false;
-		finishAssistantMessage();
-	}
-	if (message.type === 'chat:toolStatus') {
-		appendToolStatus(message.text || '', !!message.transient);
-	}
-	if (message.type === 'chat:toolStatusDone') {
-		fadeTransientToolStatus();
-	}
-	if (message.type === 'chat:toolStatusSuspend') {
-		setMainToolStatusSuppressed(true);
-	}
-	if (message.type === 'chat:toolStatusResume') {
-		setMainToolStatusSuppressed(false);
-	}
-	if (message.type === 'chat:elapsed') {
-		appendElapsedStatus(message.text || '');
-	}
-	if (message.type === 'chat:error') {
-		if (activeAssistantMessage && !(activeAssistantMessage.dataset.rawMarkdown || '').trim()) {
-			const fallback = message.text || T.requestFailed;
-			activeAssistantMessage.dataset.rawMarkdown = fallback;
-			activeAssistantMessage.innerHTML = renderMarkdown(fallback);
-		} else {
-			appendMessage('assistant', message.text || T.requestFailed);
-		}
-		setLoading(false);
-	}
-	if (message.type === 'chat:sessionReset') {
-		resetChat();
-	}
-	if (message.type === 'chat:sessions') {
-		renderSessions(message.sessions || [], message.currentSessionId || '');
-	}
-	if (message.type === 'chat:sessionHistory') {
-		if (message.sessionId === currentSessionId) {
-			renderSessionHistory(message.messages || []);
-		}
-	}
-	if (message.type === 'chat:sessionState') {
-		if (message.sessionId === currentSessionId) {
-			renderSessionState(message.state || null);
-		}
-	}
-	if (message.type === 'chat:runState') {
-		if (message.sessionId === currentSessionId && message.run) {
-			renderRunPanel(message.run);
-		}
-	}
-	if (message.type === 'chat:todos') {
-		if (message.sessionId === currentSessionId) {
-			renderTodos(message.todos || []);
-		}
-	}
-	if (message.type === 'chat:externalUserMessage') {
-		appendMessage('user', message.text || '');
-	}
-});
-
-vscode.postMessage({ type: 'chat:ready' });

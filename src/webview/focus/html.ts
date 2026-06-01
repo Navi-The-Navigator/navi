@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 
 export function getFocusHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
-	const stylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'sidebar.css'));
+	const naviCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'navi.css'));
+	const focusCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'focus.css'));
 	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'focusApp.js'));
 	return String.raw`<!DOCTYPE html>
 <html lang="en">
@@ -10,7 +11,8 @@ export function getFocusHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource};" />
 	<title>Navi Focus</title>
-	<link rel="stylesheet" href="${stylesUri}" />
+	<link rel="stylesheet" href="${naviCssUri}" />
+	<link rel="stylesheet" href="${focusCssUri}" />
 </head>
 <body class="focus-body">
 	<div class="focus-page">

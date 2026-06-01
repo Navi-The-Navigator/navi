@@ -301,7 +301,7 @@ Navi 支持从 MCP 服务器加载额外工具。
 - TODO 管理工具
 - focus 创建、读取、跳转、清理工具
 - 错误读取工具
-- Sidebar / Focus Webview HTML 输出
+- Chat / Focus Webview HTML 输出
 - 消息与 ID 工具函数
 
 这意味着 README 里提到的主交互链路，大部分在仓库里已经有测试约束，而不是仅存在于文档设想中。
@@ -318,7 +318,17 @@ src/
     mainAgent.ts         # 主 Agent 装配
     modelFactory.ts      # Copilot/BYOK 客户端与模型配置
   chat/
-    sessionStore.ts      # 多会话、消息、run、todo 状态管理
+    sessionStore.ts        # 多会话、消息、run、todo 状态管理
+    chatViewProvider.ts    # Chat WebviewViewProvider（注册 navi.chatWebview）
+    inboundRouter.ts       # chat:* 入站消息路由
+    generationController.ts# 生成生命周期、abort/cancel、持有 chat gateway
+    subagentRunTracker.ts  # 子 Agent run 追踪（4 个 Map + 会话事件处理）
+    chatMessenger.ts       # 所有 chat:* 出站消息（唯一线协议出口）
+  focus/
+    focusController.ts     # focus 区域状态与全部操作
+    focusDecorations.ts    # 编辑器高亮装饰
+    focusStatusBar.ts      # focus 状态栏项
+    focusViewProvider.ts   # Focus WebviewViewProvider + focus:* 路由
   mcp/
     config.ts            # MCP 配置解析与序列化
     settingsManager.ts   # MCP 图形化设置入口
@@ -328,16 +338,25 @@ src/
     chat.ts              # 聊天、run、focus 等核心类型
   utils/
     id.ts
+    math.ts              # clampInteger 等纯工具
     message.ts
   webview/
-    sidebarApp.ts        # Chat Webview 前端脚本
-    focusApp.ts          # Focus Webview 前端脚本
-    sidebarHtml.ts       # Chat HTML 模板
-    focusHtml.ts         # Focus HTML 模板
-  extension.ts           # 扩展入口与 VS Code 侧集成
+    chat/                # Chat Webview：{ view, render, state, html }.ts
+      view.ts            #   入口：DOM 绑定 + 入站消息分发
+      render.ts          #   渲染：markdown/代码块/run 面板/会话抽屉
+      state.ts           #   视图状态对象 + 类型 + 常量 + DOM 引用
+      html.ts            #   Chat HTML 模板（Node 侧，getChatHtml）
+    focus/               # Focus Webview：{ view, render, state, html }.ts
+      view.ts
+      render.ts
+      state.ts
+      html.ts            #   Focus HTML 模板（getFocusHtml）
+  extension.ts           # 精简的激活/装配入口（activate 仅做构造与接线）
 media/
   navi.svg
-  sidebar.css
+  navi.css               # 共享基础样式（tokens / a11y / 图标按钮 / focus 卡片）
+  chat.css               # Chat 视图专属样式
+  focus.css              # Focus 视图专属样式
 test/
   *.test.ts             # 单测与扩展测试
 ```

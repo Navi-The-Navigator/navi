@@ -10,7 +10,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:navi.sidebarWebview"
+    "onView:navi.chatWebview"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -110,16 +110,16 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "naviSidebar",
+          "id": "navi",
           "title": "Navi",
           "icon": "media/navi.svg"
         }
       ]
     },
     "views": {
-      "naviSidebar": [
+      "navi": [
         {
-          "id": "navi.sidebarWebview",
+          "id": "navi.chatWebview",
           "name": "Navi",
           "type": "webview"
         },
@@ -157,7 +157,7 @@
       "view/title": [
         {
           "command": "navi.newChat",
-          "when": "view == navi.sidebarWebview",
+          "when": "view == navi.chatWebview",
           "group": "navigation"
         }
       ]

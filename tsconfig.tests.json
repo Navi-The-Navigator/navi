@@ -3,16 +3,21 @@
 	"include": [
 		"src/agent/**/*.ts",
 		"src/chat/**/*.ts",
+		"src/focus/**/*.ts",
 		"src/mcp/**/*.ts",
 		"src/settings/**/*.ts",
 		"src/test/**/*.ts",
 		"src/types/**/*.ts",
 		"src/utils/**/*.ts",
-		"src/webview/*Html.ts"
+		"src/webview/**/html.ts"
 	],
 	"exclude": [
-		"src/webview/sidebarApp.ts",
-		"src/webview/focusApp.ts"
+		"src/webview/chat/view.ts",
+		"src/webview/chat/render.ts",
+		"src/webview/chat/state.ts",
+		"src/webview/focus/view.ts",
+		"src/webview/focus/render.ts",
+		"src/webview/focus/state.ts"
 	],
 	"compilerOptions": {
 		"module": "CommonJS",

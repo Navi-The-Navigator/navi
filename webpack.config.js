@@ -59,8 +59,8 @@ const webviewConfig = {
   target: 'web',
   mode: 'none',
   entry: {
-		sidebarApp: './src/webview/sidebarApp.ts',
-		focusApp: './src/webview/focusApp.ts'
+		chatApp: './src/webview/chat/view.ts',
+		focusApp: './src/webview/focus/view.ts'
   },
   output: {
     path: path.resolve(__dirname, 'dist'),

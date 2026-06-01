@@ -3,9 +3,10 @@ import * as vscode from 'vscode';
 const DEFAULT_WELCOME_MESSAGE =
 	'What would you like to build today? Paste your requirements, errors, or related code; I will first read the project context and synchronize the current progress in the chat area, then give you the next actionable step.';
 
-export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
-	const stylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'sidebar.css'));
-	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'sidebarApp.js'));
+export function getChatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+	const naviCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'navi.css'));
+	const chatCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'chat.css'));
+	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'chatApp.js'));
 	return String.raw`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,7 +14,8 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource};" />
 	<title>Navi Chat</title>
-	<link rel="stylesheet" href="${stylesUri}" />
+	<link rel="stylesheet" href="${naviCssUri}" />
+	<link rel="stylesheet" href="${chatCssUri}" />
 </head>
 <body>
 	<div id="chatHeader" class="chat-header">
@@ -83,6 +85,4 @@ export function getSidebarHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 	<script src="${scriptUri}"></script>
 </body>
 </html>`;
-	}
-
-
+}
