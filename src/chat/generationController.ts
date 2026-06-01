@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
-import type { NaviChatGateway } from '../agent/chatGateway';
+import type { NaviChatGateway } from '../agent/gateway';
 import { logAgentFlow, summarizeText } from '../agent/debugLogger.js';
 import { createMainChatGateway } from '../agent/mainAgent.js';
 import type { FocusController } from '../focus/focusController.js';
-import type { SettingsManager } from '../settings/settingsManager.js';
+import type { SettingsManager } from '../settings/settingsCommands.js';
+import { affectsModel } from '../settings/naviConfig.js';
+import { ApiKeyGate } from './apiKeyGate.js';
 import type { ChatMessenger } from './chatMessenger.js';
 import type { ChatSessionStore } from './sessionStore.js';
 import type { SubagentRunTracker } from './subagentRunTracker.js';
@@ -15,9 +17,8 @@ import type { SubagentRunTracker } from './subagentRunTracker.js';
  * the tracker.
  */
 export class GenerationController {
-	private static readonly envApiKeyConfirmedStateKey = 'navi.confirmedEnvApiKey';
-
 	private readonly gateway: NaviChatGateway;
+	private readonly apiKeyGate: ApiKeyGate;
 	private isGenerating = false;
 	private cancelGenerationRequested = false;
 	private activeGenerationAbortController?: AbortController;
@@ -31,6 +32,7 @@ export class GenerationController {
 		private readonly settingsManager: SettingsManager,
 		private readonly globalState: vscode.Memento
 	) {
+		this.apiKeyGate = new ApiKeyGate(this.globalState, this.settingsManager);
 		this.gateway = createMainChatGateway({
 			getCurrentSessionId: () => this.sessionStore.getCurrentSessionId(),
 			getTodos: (sessionId) => this.sessionStore.getTodos(sessionId),
@@ -99,7 +101,7 @@ export class GenerationController {
 			return;
 		}
 
-		const canProceed = await this.ensureApiKeyBeforeFirstMessage();
+		const canProceed = await this.apiKeyGate.ensureApiKey();
 		if (!canProceed) {
 			return;
 		}
@@ -133,8 +135,7 @@ export class GenerationController {
 			);
 
 			const assistantText = await this.gateway.streamAssistantReply(sessionId, prompt, {
-				onAssistantDelta: async (delta: string, event) => {
-					const parentToolCallId = event.data.parentToolCallId;
+				onAssistantDelta: async (delta: string, parentToolCallId?: string) => {
 					if (parentToolCallId) {
 						await this.tracker.handleSubagentAssistantDelta(sessionId, parentToolCallId, delta);
 						return;
@@ -149,8 +150,8 @@ export class GenerationController {
 					this.sessionStore.appendAssistantDelta(sessionId, delta);
 					await this.messenger.postAssistantDelta(delta);
 				},
-				onSessionEvent: async (event) => {
-					await this.tracker.handleSessionEventForUi(sessionId, event);
+				onAgentEvent: async (event) => {
+					await this.tracker.handleAgentEventForUi(sessionId, event);
 				},
 				shouldCancel: () => this.cancelGenerationRequested,
 				abortSignal: generationAbortController.signal
@@ -250,82 +251,7 @@ export class GenerationController {
 	}
 
 	private didAffectChatModelConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
-		return (
-			event.affectsConfiguration('navi.authMode') ||
-			event.affectsConfiguration('navi.apiKey') ||
-			event.affectsConfiguration('navi.apiBaseUrl') ||
-			event.affectsConfiguration('navi.model') ||
-			event.affectsConfiguration('navi.temperature') ||
-			event.affectsConfiguration('navi.mcpEnabled') ||
-			event.affectsConfiguration('navi.mcpServersJson')
-		);
+		return affectsModel(event);
 	}
 
-	private async ensureApiKeyBeforeFirstMessage(): Promise<boolean> {
-		const config = vscode.workspace.getConfiguration('navi');
-		const authMode = (config.get<string>('authMode') ?? 'copilot').trim().toLowerCase();
-
-		// Copilot mode: no API key needed (authentication via GitHub)
-		if (authMode === 'copilot') {
-			return true;
-		}
-
-		// BYOK mode: require an API key
-		const configuredApiKey = (config.get<string>('apiKey') ?? '').trim();
-		if (configuredApiKey) {
-			return true;
-		}
-
-		const envApiKey = (process.env.NAVI_API_KEY ?? '').trim();
-		if (envApiKey) {
-			const hasConfirmedEnvApiKey = this.globalState.get<boolean>(
-				GenerationController.envApiKeyConfirmedStateKey,
-				false
-			);
-			if (hasConfirmedEnvApiKey) {
-				return true;
-			}
-
-			const choice = await vscode.window.showInformationMessage(
-				'An API key was found in your environment variables, but none is configured in VS Code. Continue using the environment variable for now?',
-				{ modal: true },
-				'Use environment variable',
-				'Configure key'
-			);
-
-			if (choice === 'Use environment variable') {
-				await this.globalState.update(GenerationController.envApiKeyConfirmedStateKey, true);
-				return true;
-			}
-
-			if (choice === 'Configure key') {
-				await this.settingsManager.openApiKeySettings();
-				const refreshedApiKey = (config.get<string>('apiKey') ?? '').trim();
-				if (refreshedApiKey) {
-					return true;
-				}
-				return false;
-			}
-
-			return false;
-		}
-
-		const setupChoice = await vscode.window.showWarningMessage(
-			'No API key is available for BYOK mode. Configure one now?',
-			{ modal: true },
-			'Configure key',
-			'Switch to Copilot mode'
-		);
-		if (setupChoice === 'Configure key') {
-			await this.settingsManager.openApiKeySettings();
-			const updatedApiKey = (config.get<string>('apiKey') ?? '').trim();
-			return !!updatedApiKey;
-		}
-		if (setupChoice === 'Switch to Copilot mode') {
-			await config.update('authMode', 'copilot', vscode.ConfigurationTarget.Global);
-			vscode.window.showInformationMessage('Switched to GitHub Copilot mode.');
-			return true;
-		}
-		return false;
-	}
 }

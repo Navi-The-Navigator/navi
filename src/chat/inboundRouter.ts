@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { logAgentFlow } from '../agent/debugLogger.js';
 import type { FocusController } from '../focus/focusController.js';
-import type { SettingsManager } from '../settings/settingsManager.js';
+import type { SettingsManager } from '../settings/settingsCommands.js';
 import type { ChatInboundMessage } from '../types/chat';
 import type { ChatMessenger } from './chatMessenger.js';
 import type { GenerationController } from './generationController.js';

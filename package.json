@@ -47,34 +47,6 @@
 		  "default": true,
 		  "description": "Enable streaming session mode when creating Copilot SDK sessions. If disabled, replies are returned as complete messages."
 		},
-    "navi.subagentPseudoStreamChunkSize": {
-      "type": "number",
-      "default": 28,
-      "minimum": 8,
-      "maximum": 96,
-      "description": "Chunk size used for subagent pseudo-stream fallback when navi.streaming is true. Smaller values feel more incremental."
-    },
-    "navi.subagentPseudoStreamDelayMs": {
-      "type": "number",
-      "default": 18,
-      "minimum": 0,
-      "maximum": 200,
-      "description": "Delay in milliseconds between pseudo-stream chunks for subagent fallback output when navi.streaming is true."
-    },
-        "navi.temperature": {
-          "type": "number",
-          "default": 0.2,
-          "minimum": 0,
-          "maximum": 2,
-          "description": "Sampling temperature for model responses."
-        },
-        "navi.recursionLimit": {
-          "type": "number",
-          "default": 60,
-          "minimum": 10,
-          "maximum": 200,
-          "description": "Max agent reasoning/tool steps per request. Increase if the agent hits recursion limit."
-        },
         "navi.mcpEnabled": {
           "type": "boolean",
           "default": false,

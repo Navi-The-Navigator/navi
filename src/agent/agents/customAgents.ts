@@ -3,32 +3,33 @@ import {
 	CODE_EXPLORATION_AGENT_SYSTEM_PROMPT,
 	CODE_REVIEW_AGENT_SYSTEM_PROMPT,
 	PLANNING_AGENT_SYSTEM_PROMPT
-} from './config.js';
+} from '../../prompts/index.js';
+import { TOOL_NAMES } from '../tools/names.js';
 
 export const CODE_REVIEW_AGENT_NAME = 'code_review_agent';
 export const CODE_REVIEW_AGENT_DISPLAY_NAME = 'Task Assessment Agent';
 
 const CODE_REVIEW_AGENT_TOOLS = [
-	'get_errors',
-	'update_progress',
-	'manage_todos',
-	'clear_focus_code_region'
+	TOOL_NAMES.getErrors,
+	TOOL_NAMES.updateProgress,
+	TOOL_NAMES.manageTodos,
+	TOOL_NAMES.clearFocusCodeRegion
 ];
 
 export const PLANNING_AGENT_NAME = 'planning_agent';
 export const PLANNING_AGENT_DISPLAY_NAME = 'Planning Agent';
 
 const PLANNING_AGENT_TOOLS = [
-	'update_progress',
-	'manage_todos'
+	TOOL_NAMES.updateProgress,
+	TOOL_NAMES.manageTodos
 ];
 
 export const CODE_EXPLORATION_AGENT_NAME = 'code_exploration_agent';
 export const CODE_EXPLORATION_AGENT_DISPLAY_NAME = 'Code Exploration Agent';
 
 const CODE_EXPLORATION_AGENT_TOOLS = [
-	'get_errors',
-	'update_progress'
+	TOOL_NAMES.getErrors,
+	TOOL_NAMES.updateProgress
 ];
 
 export function createMainCustomAgents(): CustomAgentConfig[] {

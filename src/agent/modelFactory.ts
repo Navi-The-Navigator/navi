@@ -4,16 +4,16 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { CopilotClient } from '@github/copilot-sdk';
 import type { CopilotClientOptions, SessionConfig } from '@github/copilot-sdk';
+import {
+	resolveApiKey,
+	resolveAuthMode,
+	resolveBaseUrl,
+	resolveCopilotCliPath,
+	resolveDebugCopilotCliArgs
+} from '../settings/naviConfig.js';
 
 const cliDebugOutput = vscode.window.createOutputChannel('Navi Copilot CLI');
 let hasShownCliPathWarning = false;
-
-export type AuthMode = 'copilot' | 'byok';
-
-export const DEFAULT_API_BASE_URL = 'https://api.openai.com/v1';
-export const DEFAULT_MODEL = 'gpt-5-mini';
-export const DEFAULT_RECURSION_LIMIT = 150;
-export const DEFAULT_STREAMING_ENABLED = true;
 
 /**
  * Create a {@link CopilotClient}.
@@ -27,9 +27,9 @@ export async function createCopilotClient(
 	config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration('navi')
 ): Promise<CopilotClient> {
 	const authMode = resolveAuthMode(config);
-	const debugCliArgs = config.get<boolean>('debugCopilotCliArgs', false);
+	const debugCliArgs = resolveDebugCopilotCliArgs(config);
 	const workspaceCwd = getActiveWorkspaceRoot();
-	const configuredCliPathRaw = (config.get<string>('copilotCliPath') ?? '').trim();
+	const configuredCliPathRaw = resolveCopilotCliPath(config);
 	const configuredCliPath = configuredCliPathRaw && existsSync(configuredCliPathRaw) ? configuredCliPathRaw : undefined;
 	const resolvedCli = resolveNativeCopilotCliPathInVsCodeHost(debugCliArgs);
 	const cliPath = configuredCliPath ?? resolvedCli.path;
@@ -92,57 +92,6 @@ export function resolveProvider(
 		baseUrl: resolveBaseUrl(config),
 		apiKey
 	};
-}
-
-export function resolveAuthMode(config: vscode.WorkspaceConfiguration): AuthMode {
-	const value = (config.get<string>('authMode') ?? 'copilot').trim().toLowerCase();
-	return value === 'byok' ? 'byok' : 'copilot';
-}
-
-export function resolveApiKey(config: vscode.WorkspaceConfiguration): string {
-	const configuredApiKey = (config.get<string>('apiKey') ?? '').trim();
-	if (configuredApiKey) {
-		return configuredApiKey;
-	}
-
-	return (process.env.NAVI_API_KEY ?? '').trim();
-}
-
-export function resolveBaseUrl(config: vscode.WorkspaceConfiguration): string {
-	const configuredBaseUrl = (config.get<string>('apiBaseUrl', DEFAULT_API_BASE_URL) ?? '').trim();
-	return configuredBaseUrl || DEFAULT_API_BASE_URL;
-}
-
-export function resolveModel(config: vscode.WorkspaceConfiguration): string {
-	const configuredModel = (config.get<string>('model', DEFAULT_MODEL) ?? '').trim();
-	return configuredModel || DEFAULT_MODEL;
-}
-
-export function resolveStreaming(config: vscode.WorkspaceConfiguration): boolean {
-	return config.get<boolean>('streaming', DEFAULT_STREAMING_ENABLED);
-}
-
-export function resolveTemperature(config: vscode.WorkspaceConfiguration, override?: number): number | undefined {
-	if (override !== undefined) {
-		return override;
-	}
-	const value = config.get<number>('temperature', 0.2);
-	return Number.isFinite(value) ? value : 0.2;
-}
-
-export function resolveRecursionLimit(config: vscode.WorkspaceConfiguration): number {
-	const value = config.get<number>('recursionLimit', DEFAULT_RECURSION_LIMIT);
-	if (!Number.isFinite(value)) {
-		return DEFAULT_RECURSION_LIMIT;
-	}
-	const integer = Math.trunc(value);
-	if (integer < 10) {
-		return 10;
-	}
-	if (integer > 200) {
-		return 200;
-	}
-	return integer;
 }
 
 /**

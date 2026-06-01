@@ -22,7 +22,11 @@ export function parseMcpServerSettings(raw: string): McpServerSettings {
 		if (!value || typeof value !== 'object' || Array.isArray(value)) {
 			throw new Error(`The configuration for MCP server "${name}" must be an object.`);
 		}
-		result[name] = value as McpServerEntry;
+		const entry = value as Record<string, unknown>;
+		if ('enabled' in entry && typeof entry.enabled !== 'boolean') {
+			throw new Error(`The "enabled" field for MCP server "${name}" must be a boolean.`);
+		}
+		result[name] = entry as McpServerEntry;
 	}
 
 	return result;
@@ -49,6 +53,9 @@ export function toEnabledMcpConnections(servers: McpServerSettings): Record<stri
 		}
 
 		const { enabled: _enabled, ...connection } = entry;
+		if (Object.keys(connection).length === 0) {
+			throw new Error(`The configuration for MCP server "${serverName}" must include a connection (e.g. command or url).`);
+		}
 		result[serverName] = connection as unknown as MCPServerConfig;
 	}
 

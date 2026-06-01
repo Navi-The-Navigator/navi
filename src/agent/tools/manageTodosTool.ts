@@ -1,5 +1,6 @@
 import type { ChatTodo } from '../../types/chat';
 import type { NaviTool } from '../naviTool';
+import { errorResult, successResult } from './_shared.js';
 
 type ManageTodosAction =
 	| 'list'
@@ -106,17 +107,12 @@ export function createManageTodosTool(deps: ManageTodosDeps): NaviTool {
 				await deps.onTodosChanged(sessionId);
 			}
 
-			return JSON.stringify(
-				{
-					ok: true,
-					action,
-					message,
-					sessionId,
-					todos: deps.getTodos(sessionId)
-				},
-				null,
-				2
-			);
+			return successResult({
+				action,
+				message,
+				sessionId,
+				todos: deps.getTodos(sessionId)
+			});
 		}
 	};
 }
@@ -237,8 +233,4 @@ function resolveTodoId(input: ManageTodosInput, todos: ChatTodo[]): string | und
 		}
 	}
 	return undefined;
-}
-
-function errorResult(message: string): string {
-	return JSON.stringify({ ok: false, error: message }, null, 2);
 }

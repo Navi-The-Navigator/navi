@@ -1,8 +1,14 @@
 import * as vscode from 'vscode';
-import { McpSettingsManager } from '../mcp/settingsManager.js';
-
-const DEFAULT_API_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_MODEL = 'gpt-5-mini';
+import { McpSettingsManager } from '../mcp/settingsCommands.js';
+import {
+	DEFAULT_API_BASE_URL,
+	DEFAULT_MODEL,
+	resolveAuthMode,
+	resolveBaseUrl,
+	resolveConfiguredApiKey,
+	resolveEnvApiKey,
+	resolveModel
+} from './naviConfig.js';
 
 export class SettingsManager {
 	private readonly mcpSettingsManager = new McpSettingsManager();
@@ -301,15 +307,15 @@ export class SettingsManager {
 	}
 
 	private getAuthMode(config: vscode.WorkspaceConfiguration): string {
-		return (config.get<string>('authMode') ?? 'copilot').trim().toLowerCase();
+		return resolveAuthMode(config);
 	}
 
 	private getConfiguredApiKey(config: vscode.WorkspaceConfiguration): string {
-		return (config.get<string>('apiKey') ?? '').trim();
+		return resolveConfiguredApiKey(config);
 	}
 
 	private getEnvApiKey(): string {
-		return (process.env.NAVI_API_KEY ?? '').trim();
+		return resolveEnvApiKey();
 	}
 
 	private describeKeySource(config: vscode.WorkspaceConfiguration): string {
@@ -323,13 +329,11 @@ export class SettingsManager {
 	}
 
 	private getConfiguredBaseUrl(config: vscode.WorkspaceConfiguration): string {
-		const value = (config.get<string>('apiBaseUrl', DEFAULT_API_BASE_URL) ?? DEFAULT_API_BASE_URL).trim();
-		return value || DEFAULT_API_BASE_URL;
+		return resolveBaseUrl(config);
 	}
 
 	private getConfiguredModel(config: vscode.WorkspaceConfiguration): string {
-		const value = (config.get<string>('model', DEFAULT_MODEL) ?? DEFAULT_MODEL).trim();
-		return value || DEFAULT_MODEL;
+		return resolveModel(config);
 	}
 
 	private validateBaseUrl(value: string): string | undefined {

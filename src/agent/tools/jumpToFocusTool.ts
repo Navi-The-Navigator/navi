@@ -1,6 +1,7 @@
-import * as vscode from 'vscode';
 import type { ChatFocusTarget } from '../../types/chat';
 import type { NaviTool } from '../naviTool';
+import { errorResult, parseInput, successResult } from './_shared.js';
+import { getWorkspaceRoot } from './editorGateway.js';
 
 export type JumpToFocusInput = {
 	id?: string;
@@ -31,46 +32,16 @@ export function createJumpToFocusTool(deps: JumpToFocusDeps): NaviTool {
 				return errorResult('No workspace folder is open.');
 			}
 
-			const input = parseInput(rawInput);
+			const input = parseInput<JumpToFocusInput>(rawInput, (text) => ({ id: text }));
 			const sessionId = deps.getCurrentSessionId();
 			const result = await deps.jumpToFocus(sessionId, input);
 
-			return JSON.stringify(
-				{
-					ok: true,
-					sessionId,
-					count: result.count,
-					activeIndex: result.activeIndex,
-					activeFocusTarget: result.activeFocusTarget
-				},
-				null,
-				2
-			);
+			return successResult({
+				sessionId,
+				count: result.count,
+				activeIndex: result.activeIndex,
+				activeFocusTarget: result.activeFocusTarget
+			});
 		}
 	};
-}
-
-function getWorkspaceRoot(): string | undefined {
-	const firstFolder = vscode.workspace.workspaceFolders?.[0];
-	return firstFolder?.uri.fsPath;
-}
-
-function parseInput(rawInput: string): JumpToFocusInput {
-	const text = rawInput.trim();
-	if (!text) {
-		return {};
-	}
-	if (text.startsWith('{')) {
-		try {
-			const parsed = JSON.parse(text) as JumpToFocusInput;
-			return parsed ?? {};
-		} catch {
-			return { id: text };
-		}
-	}
-	return { id: text };
-}
-
-function errorResult(message: string): string {
-	return JSON.stringify({ ok: false, error: message }, null, 2);
 }

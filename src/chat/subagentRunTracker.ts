@@ -1,4 +1,4 @@
-import type { SessionEvent } from '@github/copilot-sdk';
+import type { AgentEvent } from '../agent/sdkEventMapper.js';
 import {
 	CODE_EXPLORATION_AGENT_DISPLAY_NAME,
 	CODE_EXPLORATION_AGENT_NAME,
@@ -78,15 +78,15 @@ export class SubagentRunTracker {
 		await this.messenger.postToolStatusSuspended(false);
 	}
 
-	public async handleSessionEventForUi(sessionId: string, event: SessionEvent): Promise<void> {
+	public async handleAgentEventForUi(sessionId: string, event: AgentEvent): Promise<void> {
 		switch (event.type) {
-			case 'tool.execution_start':
+			case 'tool.start':
 				await this.handleToolExecutionStart(sessionId, event);
 				break;
-			case 'tool.execution_progress':
+			case 'tool.progress':
 				await this.handleToolExecutionProgress(sessionId, event);
 				break;
-			case 'tool.execution_complete':
+			case 'tool.complete':
 				await this.handleToolExecutionComplete(sessionId, event);
 				break;
 			case 'subagent.started':
@@ -143,24 +143,24 @@ export class SubagentRunTracker {
 
 	private async handleToolExecutionStart(
 		sessionId: string,
-		event: Extract<SessionEvent, { type: 'tool.execution_start' }>
+		event: Extract<AgentEvent, { type: 'tool.start' }>
 	): Promise<void> {
-		const toolName = event.data.toolName ?? 'unknown_tool';
-		const parentToolCallId = event.data.parentToolCallId;
+		const toolName = event.toolName ?? 'unknown_tool';
+		const parentToolCallId = event.parentToolCallId;
 		const runId = parentToolCallId ? this.subagentRunIdsByParentToolCallId.get(parentToolCallId) : undefined;
 
 		logAgentFlow('main.extension', 'callback:onToolStart', {
 			sessionId,
 			toolName,
-			toolCallId: event.data.toolCallId,
+			toolCallId: event.toolCallId,
 			parentToolCallId,
 			runId,
 			activeSubagentRuns: this.activeSubagentRunIds.size
 		});
 
 		if (runId) {
-			this.subagentRunIdsByToolCallId.set(event.data.toolCallId, runId);
-			this.subagentToolNamesByToolCallId.set(event.data.toolCallId, toolName);
+			this.subagentRunIdsByToolCallId.set(event.toolCallId, runId);
+			this.subagentToolNamesByToolCallId.set(event.toolCallId, toolName);
 			this.sessionStore.setRunTransientToolStatus(sessionId, runId, `Calling tool \`${toolName}\`…`);
 			await this.postRunState(sessionId, runId);
 			return;
@@ -175,29 +175,29 @@ export class SubagentRunTracker {
 
 	private async handleToolExecutionProgress(
 		sessionId: string,
-		event: Extract<SessionEvent, { type: 'tool.execution_progress' }>
+		event: Extract<AgentEvent, { type: 'tool.progress' }>
 	): Promise<void> {
-		const runId = this.subagentRunIdsByToolCallId.get(event.data.toolCallId);
+		const runId = this.subagentRunIdsByToolCallId.get(event.toolCallId);
 		if (!runId) {
 			return;
 		}
-		this.sessionStore.appendRunProgress(sessionId, runId, event.data.progressMessage);
+		this.sessionStore.appendRunProgress(sessionId, runId, event.progressMessage);
 		await this.postRunState(sessionId, runId);
 	}
 
 	private async handleToolExecutionComplete(
 		sessionId: string,
-		event: Extract<SessionEvent, { type: 'tool.execution_complete' }>
+		event: Extract<AgentEvent, { type: 'tool.complete' }>
 	): Promise<void> {
-		const runId = this.subagentRunIdsByToolCallId.get(event.data.toolCallId);
-		const toolName = this.subagentToolNamesByToolCallId.get(event.data.toolCallId);
+		const runId = this.subagentRunIdsByToolCallId.get(event.toolCallId);
+		const toolName = this.subagentToolNamesByToolCallId.get(event.toolCallId);
 
 		logAgentFlow('main.extension', 'callback:onToolEnd', {
 			sessionId,
-			toolCallId: event.data.toolCallId,
+			toolCallId: event.toolCallId,
 			toolName,
 			runId,
-			success: event.data.success,
+			success: event.success,
 			activeSubagentRuns: this.activeSubagentRunIds.size
 		});
 
@@ -208,14 +208,14 @@ export class SubagentRunTracker {
 					this.sessionStore.appendRunProgress(sessionId, runId, progressText);
 				}
 			}
-			this.subagentRunIdsByToolCallId.delete(event.data.toolCallId);
-			this.subagentToolNamesByToolCallId.delete(event.data.toolCallId);
+			this.subagentRunIdsByToolCallId.delete(event.toolCallId);
+			this.subagentToolNamesByToolCallId.delete(event.toolCallId);
 			this.sessionStore.clearRunTransientToolStatus(sessionId, runId);
 			await this.postRunState(sessionId, runId);
 			return;
 		}
 
-		this.subagentToolNamesByToolCallId.delete(event.data.toolCallId);
+		this.subagentToolNamesByToolCallId.delete(event.toolCallId);
 
 		if (this.activeSubagentRunIds.size > 0) {
 			return;
@@ -226,36 +226,36 @@ export class SubagentRunTracker {
 
 	private async handleSubagentStarted(
 		sessionId: string,
-		event: Extract<SessionEvent, { type: 'subagent.started' }>
+		event: Extract<AgentEvent, { type: 'subagent.started' }>
 	): Promise<void> {
-		const existingRunId = this.subagentRunIdsByParentToolCallId.get(event.data.toolCallId);
+		const existingRunId = this.subagentRunIdsByParentToolCallId.get(event.toolCallId);
 		if (existingRunId) {
 			logAgentFlow('main.extension.subagent', 'start:duplicate_ignored', {
 				sessionId,
 				runId: existingRunId,
-				toolCallId: event.data.toolCallId,
-				agentName: event.data.agentName
+				toolCallId: event.toolCallId,
+				agentName: event.agentName
 			});
 			return;
 		}
 
-		const kind: ChatRun['kind'] = event.data.agentName === CODE_REVIEW_AGENT_NAME ? 'code_review' : 'subagent';
+		const kind: ChatRun['kind'] = event.agentName === CODE_REVIEW_AGENT_NAME ? 'code_review' : 'subagent';
 		const run = this.sessionStore.startRun(sessionId, {
-			title: this.resolveSubagentDisplayName(event.data.agentName, event.data.agentDisplayName),
+			title: this.resolveSubagentDisplayName(event.agentName, event.agentDisplayName),
 			kind
 		});
 		const shouldSuspendMainToolSlot = this.activeSubagentRunIds.size === 0;
 		this.activeSubagentRunIds.add(run.id);
-		this.subagentRunIdsByParentToolCallId.set(event.data.toolCallId, run.id);
+		this.subagentRunIdsByParentToolCallId.set(event.toolCallId, run.id);
 		if (shouldSuspendMainToolSlot) {
 			await this.messenger.postToolStatusSuspended(true);
 		}
 		logAgentFlow('main.extension.subagent', 'start', {
 			sessionId,
 			runId: run.id,
-			toolCallId: event.data.toolCallId,
-			agentName: event.data.agentName,
-			agentDisplayName: event.data.agentDisplayName,
+			toolCallId: event.toolCallId,
+			agentName: event.agentName,
+			agentDisplayName: event.agentDisplayName,
 			activeSubagentRuns: this.activeSubagentRunIds.size
 		});
 		await this.postRunState(sessionId, run.id);
@@ -263,27 +263,27 @@ export class SubagentRunTracker {
 
 	private async handleSubagentCompleted(
 		sessionId: string,
-		event: Extract<SessionEvent, { type: 'subagent.completed' }>
+		event: Extract<AgentEvent, { type: 'subagent.completed' }>
 	): Promise<void> {
-		const runId = this.subagentRunIdsByParentToolCallId.get(event.data.toolCallId);
+		const runId = this.subagentRunIdsByParentToolCallId.get(event.toolCallId);
 		if (!runId) {
 			return;
 		}
-		this.subagentRunIdsByParentToolCallId.delete(event.data.toolCallId);
+		this.subagentRunIdsByParentToolCallId.delete(event.toolCallId);
 		this.activeSubagentRunIds.delete(runId);
 		if (this.activeSubagentRunIds.size === 0) {
 			await this.messenger.postToolStatusSuspended(false);
 		}
-		const elapsedText = this.formatElapsedText(event.data.durationMs);
+		const elapsedText = this.formatElapsedText(event.durationMs);
 		const run = this.sessionStore.getRun(sessionId, runId);
 		const finalAssistantText = run?.activeAssistantText.trim()
 			? undefined
-			: this.resolveSubagentCompletionText(event.data.agentName, event.data.agentDisplayName);
+			: this.resolveSubagentCompletionText(event.agentName, event.agentDisplayName);
 		logAgentFlow('main.extension.subagent', 'finish', {
 			sessionId,
 			runId,
-			toolCallId: event.data.toolCallId,
-			agentName: event.data.agentName,
+			toolCallId: event.toolCallId,
+			agentName: event.agentName,
 			elapsedText,
 			activeSubagentRuns: this.activeSubagentRunIds.size
 		});
@@ -296,28 +296,28 @@ export class SubagentRunTracker {
 
 	private async handleSubagentFailed(
 		sessionId: string,
-		event: Extract<SessionEvent, { type: 'subagent.failed' }>
+		event: Extract<AgentEvent, { type: 'subagent.failed' }>
 	): Promise<void> {
-		const runId = this.subagentRunIdsByParentToolCallId.get(event.data.toolCallId);
+		const runId = this.subagentRunIdsByParentToolCallId.get(event.toolCallId);
 		if (!runId) {
 			return;
 		}
-		this.subagentRunIdsByParentToolCallId.delete(event.data.toolCallId);
+		this.subagentRunIdsByParentToolCallId.delete(event.toolCallId);
 		this.activeSubagentRunIds.delete(runId);
 		if (this.activeSubagentRunIds.size === 0) {
 			await this.messenger.postToolStatusSuspended(false);
 		}
-		const elapsedText = this.formatElapsedText(event.data.durationMs);
+		const elapsedText = this.formatElapsedText(event.durationMs);
 		logAgentFlow('main.extension.subagent', 'error', {
 			sessionId,
 			runId,
-			toolCallId: event.data.toolCallId,
-			agentName: event.data.agentName,
-			message: event.data.error,
+			toolCallId: event.toolCallId,
+			agentName: event.agentName,
+			message: event.error,
 			elapsedText,
 			activeSubagentRuns: this.activeSubagentRunIds.size
 		});
-		this.sessionStore.failRun(sessionId, runId, event.data.error, elapsedText);
+		this.sessionStore.failRun(sessionId, runId, event.error, elapsedText);
 		await this.postRunState(sessionId, runId);
 	}
 
@@ -355,10 +355,9 @@ export class SubagentRunTracker {
 	}
 
 	private extractProgressFromToolResult(
-		event: Extract<SessionEvent, { type: 'tool.execution_complete' }>
+		event: Extract<AgentEvent, { type: 'tool.complete' }>
 	): string | undefined {
-		const rawResult = (event.data as { result?: { content?: string; detailedContent?: string } }).result;
-		const content = (rawResult?.detailedContent ?? rawResult?.content ?? '').trim();
+		const content = (event.resultContent ?? '').trim();
 		if (!content) {
 			return undefined;
 		}

@@ -9,7 +9,7 @@ import { FocusController } from './focus/focusController.js';
 import { FocusDecorations } from './focus/focusDecorations.js';
 import { FocusStatusBar } from './focus/focusStatusBar.js';
 import { NaviFocusViewProvider } from './focus/focusViewProvider.js';
-import { SettingsManager } from './settings/settingsManager.js';
+import { SettingsManager } from './settings/settingsCommands.js';
 import { getChatHtml } from './webview/chat/html.js';
 import { getFocusHtml } from './webview/focus/html.js';
 

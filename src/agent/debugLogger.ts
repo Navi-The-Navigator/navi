@@ -1,18 +1,19 @@
 import * as vscode from 'vscode';
+import { resolveDebugAgentReplyFlow, resolveDebugAgentReplyFlowReveal } from '../settings/naviConfig.js';
 
 const agentFlowOutput = vscode.window.createOutputChannel('Navi Agent Flow');
 const DEFAULT_PREVIEW_LIMIT = 160;
 
 export function logAgentFlow(scope: string, message: string, details?: Record<string, unknown>): void {
 	const config = vscode.workspace.getConfiguration('navi');
-	if (!config.get<boolean>('debugAgentReplyFlow', false)) {
+	if (!resolveDebugAgentReplyFlow(config)) {
 		return;
 	}
 
 	const timestamp = new Date().toISOString();
 	const detailText = formatDetails(details);
 	agentFlowOutput.appendLine(`[${timestamp}] [${scope}] ${message}${detailText ? ` ${detailText}` : ''}`);
-	if (config.get<boolean>('debugAgentReplyFlowReveal', false)) {
+	if (resolveDebugAgentReplyFlowReveal(config)) {
 		agentFlowOutput.show(true);
 	}
 }

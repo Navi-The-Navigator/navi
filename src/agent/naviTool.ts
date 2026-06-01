@@ -9,5 +9,11 @@
 export type NaviTool = {
 	name: string;
 	description: string;
+	/**
+	 * Optional JSON-schema for the tool's parameters. When omitted, the gateway
+	 * exposes the default single `{ input: string }` schema. Additive: existing
+	 * tools that take a raw string need not set this.
+	 */
+	inputSchema?: Record<string, unknown>;
 	func: (rawInput: string) => Promise<string>;
 };

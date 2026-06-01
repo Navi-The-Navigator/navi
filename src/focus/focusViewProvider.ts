@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { buildFocusActionPrompt, type FocusAction } from '../agent/config.js';
+import { buildFocusActionPrompt, type FocusAction } from '../prompts/index.js';
 import type { ChatMessenger } from '../chat/chatMessenger.js';
 import type { GenerationController } from '../chat/generationController.js';
 import type { ChatSessionStore } from '../chat/sessionStore.js';

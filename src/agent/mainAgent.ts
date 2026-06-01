@@ -1,6 +1,7 @@
 import type { ChatFocusTarget, ChatTodo } from '../types/chat';
 import { createMainCustomAgents } from './agents/customAgents.js';
-import { NaviChatGateway } from './chatGateway.js';
+import { NaviChatGateway } from './gateway.js';
+import { CopilotProvider } from './provider/CopilotProvider.js';
 import { createClearFocusCodeRegionTool, type ClearFocusCodeRegionInput } from './tools/clearFocusCodeRegionTool.js';
 import { createFocusCodeRegionTool, type FocusCodeRegionInput } from './tools/focusCodeRegionTool.js';
 import { createGetFocusCodeRegionsTool, type GetFocusCodeRegionsInput } from './tools/getFocusCodeRegionsTool.js';
@@ -44,8 +45,8 @@ export type MainAgentDeps = {
 };
 
 export function createMainChatGateway(deps: MainAgentDeps): NaviChatGateway {
-	return new NaviChatGateway({
-		tools: [
+	return new NaviChatGateway(new CopilotProvider(
+		[
 			createGetErrorsTool(),
 			createFocusCodeRegionTool({
 				getCurrentSessionId: deps.getCurrentSessionId,
@@ -78,6 +79,6 @@ export function createMainChatGateway(deps: MainAgentDeps): NaviChatGateway {
 				onTodosChanged: deps.onTodosChanged
 			})
 		],
-		customAgents: createMainCustomAgents()
-	});
+		createMainCustomAgents()
+	));
 }

@@ -1,4 +1,5 @@
 import type { NaviTool } from '../naviTool';
+import { errorResult, parseInput, successResult } from './_shared.js';
 
 type UpdateProgressInput = {
 	text?: string;
@@ -16,33 +17,16 @@ export function createUpdateProgressTool(deps: UpdateProgressDeps): NaviTool {
 		description:
 			'Post a short progress update to the chat area. Input can be plain text or JSON: {text, stage?, status?}.',
 		func: async (rawInput: string) => {
-			const input = parseInput(rawInput);
+			const input = parseInput<UpdateProgressInput>(rawInput, (text) => ({ text }));
 			const text = buildProgressText(input);
 			if (!text) {
-				return JSON.stringify({ ok: false, error: 'Progress text is required.' }, null, 2);
+				return errorResult('Progress text is required.');
 			}
 
 			await deps.onProgress(text);
-			return JSON.stringify({ ok: true, text }, null, 2);
+			return successResult({ text });
 		}
 	};
-}
-
-function parseInput(rawInput: string): UpdateProgressInput {
-	const text = rawInput.trim();
-	if (!text) {
-		return {};
-	}
-
-	if (text.startsWith('{')) {
-		try {
-			return JSON.parse(text) as UpdateProgressInput;
-		} catch {
-			return { text };
-		}
-	}
-
-	return { text };
 }
 
 function buildProgressText(input: UpdateProgressInput): string {

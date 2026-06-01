@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { type McpServerEntry, type McpServerSettings, readMcpServerSettings, writeMcpServerSettings } from './config.js';
+import { resolveMcpEnabled } from '../settings/naviConfig.js';
 
 export class McpSettingsManager {
 	private getConfig(): vscode.WorkspaceConfiguration {
@@ -10,7 +11,7 @@ export class McpSettingsManager {
 		let shouldContinue = true;
 		while (shouldContinue) {
 			const config = this.getConfig();
-			const mcpEnabled = config.get<boolean>('mcpEnabled', false);
+			const mcpEnabled = resolveMcpEnabled(config);
 			const servers = await this.readValidatedSettingsOrNotify(config);
 			if (!servers) {
 				return;

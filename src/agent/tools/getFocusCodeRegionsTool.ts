@@ -1,7 +1,8 @@
 import * as path from 'path';
-import * as vscode from 'vscode';
 import type { ChatFocusTarget } from '../../types/chat';
 import type { NaviTool } from '../naviTool';
+import { errorResult, parseInput, successResult } from './_shared.js';
+import { getWorkspaceRoot } from './editorGateway.js';
 
 export type GetFocusCodeRegionsInput = {
 	path?: string;
@@ -30,7 +31,7 @@ export function createGetFocusCodeRegionsTool(deps: GetFocusCodeRegionsDeps): Na
 				return errorResult('No workspace folder is open.');
 			}
 
-			const input = parseInput(rawInput);
+			const input = parseInput<GetFocusCodeRegionsInput>(rawInput, (text) => ({ path: text }));
 			if (input.path) {
 				const normalizedPath = normalizePath(input.path);
 				const targetPath = resolvePathInsideWorkspace(workspaceRoot, normalizedPath);
@@ -47,41 +48,15 @@ export function createGetFocusCodeRegionsTool(deps: GetFocusCodeRegionsDeps): Na
 					? result.targets[result.activeIndex]
 					: null;
 
-			return JSON.stringify(
-				{
-					ok: true,
-					sessionId,
-					count: result.targets.length,
-					activeIndex: result.activeIndex,
-					activeFocusTarget,
-					focusTargets: result.targets
-				},
-				null,
-				2
-			);
+			return successResult({
+				sessionId,
+				count: result.targets.length,
+				activeIndex: result.activeIndex,
+				activeFocusTarget,
+				focusTargets: result.targets
+			});
 		}
 	};
-}
-
-function getWorkspaceRoot(): string | undefined {
-	const firstFolder = vscode.workspace.workspaceFolders?.[0];
-	return firstFolder?.uri.fsPath;
-}
-
-function parseInput(rawInput: string): GetFocusCodeRegionsInput {
-	const text = rawInput.trim();
-	if (!text) {
-		return {};
-	}
-	if (text.startsWith('{')) {
-		try {
-			const parsed = JSON.parse(text) as GetFocusCodeRegionsInput;
-			return parsed ?? {};
-		} catch {
-			return { path: text };
-		}
-	}
-	return { path: text };
 }
 
 function resolvePathInsideWorkspace(workspaceRoot: string, requestedPath: string): string | undefined {
@@ -95,8 +70,4 @@ function resolvePathInsideWorkspace(workspaceRoot: string, requestedPath: string
 
 function normalizePath(inputPath: string): string {
 	return inputPath.trim().replace(/\\/g, '/');
-}
-
-function errorResult(message: string): string {
-	return JSON.stringify({ ok: false, error: message }, null, 2);
 }

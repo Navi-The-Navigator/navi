@@ -1,6 +1,8 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { NaviTool } from '../naviTool';
+import { parseInput, successResult } from './_shared.js';
+import { getAllDiagnostics as defaultGetAllDiagnostics, getWorkspaceRoot } from './editorGateway.js';
 
 type GetErrorsInput = {
 	filePaths?: string[];
@@ -30,14 +32,14 @@ const DEFAULT_MAX_ITEMS = 200;
 
 export function createGetErrorsTool(deps: GetErrorsDeps = {}): NaviTool {
 	const resolveWorkspaceRoot = deps.resolveWorkspaceRoot ?? getWorkspaceRoot;
-	const getAllDiagnostics = deps.getAllDiagnostics ?? (() => vscode.languages.getDiagnostics());
+	const getAllDiagnostics = deps.getAllDiagnostics ?? defaultGetAllDiagnostics;
 
 	return {
 		name: 'get_errors',
 		description:
 			'Read workspace diagnostics (errors, warnings, info, hints). Optional input JSON: {"filePaths":["src/file.ts"],"maxItems":200}. Also accepts "paths" or single "path".',
 		func: async (rawInput: string) => {
-			const input = parseInput(rawInput);
+			const input = parseInput<GetErrorsInput>(rawInput, (text) => ({ path: text }));
 			const workspaceRoot = resolveWorkspaceRoot();
 			const all = getAllDiagnostics();
 			const requestedPathSet = resolveRequestedPaths(input, workspaceRoot);
@@ -49,40 +51,14 @@ export function createGetErrorsTool(deps: GetErrorsDeps = {}): NaviTool {
 			});
 
 			const summary = summarizeBySeverity(diagnostics);
-			return JSON.stringify(
-				{
-					ok: true,
-					workspaceRoot: workspaceRoot ?? null,
-					requestedPaths: requestedPathSet ? Array.from(requestedPathSet.values()) : [],
-					summary,
-					diagnostics
-				},
-				null,
-				2
-			);
+			return successResult({
+				workspaceRoot: workspaceRoot ?? null,
+				requestedPaths: requestedPathSet ? Array.from(requestedPathSet.values()) : [],
+				summary,
+				diagnostics
+			});
 		}
 	};
-}
-
-function getWorkspaceRoot(): string | undefined {
-	return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-}
-
-function parseInput(rawInput: string): GetErrorsInput {
-	const text = rawInput.trim();
-	if (!text) {
-		return {};
-	}
-
-	if (text.startsWith('{')) {
-		try {
-			return JSON.parse(text) as GetErrorsInput;
-		} catch {
-			return { path: text };
-		}
-	}
-
-	return { path: text };
 }
 
 function resolveRequestedPaths(input: GetErrorsInput, workspaceRoot: string | undefined): Set<string> | undefined {
