@@ -201,7 +201,6 @@ export const todoList = requireElement<HTMLDivElement>('#todoList');
 export const todoSummary = requireElement<HTMLSpanElement>('#todoSummary');
 export const sessionDrawer = requireElement<HTMLDivElement>('#sessionDrawer');
 export const sessionDrawerOverlay = requireElement<HTMLDivElement>('#sessionDrawerOverlay');
-export const drawerNewChatBtn = requireElement<HTMLButtonElement>('#drawerNewChatBtn');
 export const drawerSearch = requireElement<HTMLInputElement>('#drawerSearch');
 export const sessionList = requireElement<HTMLDivElement>('#sessionList');
 export const activeSessionLabel = document.querySelector<HTMLDivElement>('#activeSessionLabel');

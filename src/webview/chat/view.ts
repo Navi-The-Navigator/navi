@@ -21,7 +21,6 @@ import {
 	todoSummary,
 	sessionDrawer,
 	sessionDrawerOverlay,
-	drawerNewChatBtn,
 	drawerSearch,
 	sessionList,
 	activeSessionLabel,
@@ -175,13 +174,6 @@ document.addEventListener('keydown', (event) => {
 });
 drawerSearch.addEventListener('input', () => {
 	filterSessions(drawerSearch.value);
-});
-drawerNewChatBtn.addEventListener('click', () => {
-	if (state.isBusy) {
-		return;
-	}
-	closeSessionDrawer();
-	vscode.postMessage({ type: 'chat:newSession' });
 });
 chatBody.addEventListener('click', (event) => {
 	const target = event.target;

@@ -75,7 +75,6 @@ export function getChatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): 
 	<div id="sessionDrawer" class="session-drawer" role="dialog" aria-modal="true" aria-label="Conversations" aria-hidden="true">
 		<div class="drawer-header">
 			<span class="drawer-title">Sessions</span>
-			<button id="drawerNewChatBtn" class="drawer-new-chat-btn" type="button">+ New Chat</button>
 		</div>
 		<div class="drawer-search-wrap">
 			<input id="drawerSearch" class="drawer-search" type="text" placeholder="Search sessions…" autocomplete="off" />

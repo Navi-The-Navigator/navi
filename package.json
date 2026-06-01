@@ -108,7 +108,7 @@
       }
     },
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "navi",
           "title": "Navi",
@@ -121,12 +121,14 @@
         {
           "id": "navi.chatWebview",
           "name": "Navi",
-          "type": "webview"
+          "type": "webview",
+          "icon": "$(compass)"
         },
         {
           "id": "navi.focusWebview",
           "name": "Focus",
-          "type": "webview"
+          "type": "webview",
+          "icon": "$(search)"
         }
       ]
     },

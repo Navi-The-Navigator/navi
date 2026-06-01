@@ -24,7 +24,6 @@ import {
 	todoSummary,
 	sessionDrawer,
 	sessionDrawerOverlay,
-	drawerNewChatBtn,
 	drawerSearch,
 	sessionList,
 	activeSessionLabel,
