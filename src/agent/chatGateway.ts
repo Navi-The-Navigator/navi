@@ -654,7 +654,7 @@ export class NaviChatGateway {
 			parsedServers = parseMcpServerSettings(mcpServersJson);
 		} catch (error) {
 			if (error instanceof SyntaxError) {
-				throw new Error('navi.mcpServersJson 不是有效的 JSON。');
+				throw new Error('navi.mcpServersJson is not valid JSON.');
 			}
 			throw error;
 		}
@@ -728,16 +728,16 @@ export class NaviChatGateway {
 		const message = this.getErrorMessage(error);
 		const lower = message.toLowerCase();
 		if (lower.includes('__navi_cancelled__')) {
-			return new Error('用户已取消本次生成。');
+			return new Error('Generation cancelled by the user.');
 		}
 		if (lower.includes('aborterror')) {
-			return new Error('用户已取消本次生成。');
+			return new Error('Generation cancelled by the user.');
 		}
 		if (lower.includes('terminated') || lower.includes('abort')) {
-			return new Error('连接被中断（terminated）。已自动重试一次；如仍失败，请重试或降低任务复杂度。');
+			return new Error('The connection was terminated. It was retried once automatically; if it still fails, please retry or reduce the task complexity.');
 		}
 		if (lower.includes('timeout') || lower.includes('timed out')) {
-			return new Error('请求超时。请重试，或拆分为更小的步骤后再请求。');
+			return new Error('The request timed out. Please retry, or break it into smaller steps.');
 		}
 		return error instanceof Error ? error : new Error(message);
 	}

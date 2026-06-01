@@ -162,6 +162,21 @@ const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 120;
 const TODO_BOTTOM_STICKY_THRESHOLD_PX = 120;
 const COLLAPSE_TRANSITION_MS = 240;
 
+// User-facing strings, centralized for easy future localization.
+const T = {
+	runStatus: { running: 'Running', completed: 'Done', cancelled: 'Cancelled', failed: 'Failed' },
+	durationSuffix: 's',
+	running: (duration: string) => `${duration} elapsed`,
+	took: (duration: string) => `Took ${duration}`,
+	expand: 'Expand',
+	collapse: 'Collapse',
+	progressCollapsed: (count: number) => `Progress (${count}) — click to expand`,
+	progressExpanded: (count: number) => `Progress (${count}) — click to collapse`,
+	requestNotProcessed: 'Request was not processed. Please try again.',
+	requestFailed: 'Request failed',
+	copyCodeAria: (language: string) => `Copy ${language} code block`
+} as const;
+
 const markdown = new MarkdownIt({
 	html: false,
 	breaks: true,
@@ -178,7 +193,8 @@ const markdown = new MarkdownIt({
 });
 
 const vscode = acquireVsCodeApi();
-const chatHeader = requireElement<HTMLDivElement>('#chatHeader');
+const chatTitleBtn = requireElement<HTMLButtonElement>('#chatTitleBtn');
+const headerNewChatBtn = requireElement<HTMLButtonElement>('#headerNewChatBtn');
 const chatTitle = requireElement<HTMLSpanElement>('#chatTitle');
 const chatBody = requireElement<HTMLDivElement>('#chatBody');
 const promptInput = requireElement<HTMLTextAreaElement>('#prompt');
@@ -208,6 +224,7 @@ const toolCallSlot = requireElement<HTMLDivElement>('#toolCallSlot');
 const loading = requireElement<HTMLDivElement>('#loading');
 
 let activeAssistantMessage: HTMLDivElement | null = null;
+let assistantRenderFrame: number | null = null;
 let currentSessionId = '';
 let isBusy = false;
 let sessionsState: ChatSession[] = [];
@@ -337,7 +354,7 @@ function enhanceCodeBlock(preElement: HTMLPreElement): void {
 	copyButton.type = 'button';
 	copyButton.className = 'md-code-copy';
 	copyButton.textContent = 'Copy';
-	copyButton.setAttribute('aria-label', `复制 ${formatLanguageLabel(language)} 代码块`);
+	copyButton.setAttribute('aria-label', T.copyCodeAria(formatLanguageLabel(language)));
 
 	toolbar.appendChild(label);
 	toolbar.appendChild(copyButton);
@@ -409,7 +426,8 @@ function setLoading(isLoading: boolean): void {
 		toolCallSlot.classList.toggle('hidden', mainToolStatusSuppressed);
 		loading.classList.add('show');
 		sendBtn.disabled = false;
-		sendBtn.textContent = 'Cancel';
+		sendBtn.setAttribute('aria-label', 'Cancel');
+		sendBtn.title = 'Cancel';
 		sendBtn.classList.add('composer-cancel');
 		settingsBtn.disabled = true;
 		closeSessionDrawer();
@@ -418,7 +436,8 @@ function setLoading(isLoading: boolean): void {
 	loading.classList.remove('show');
 	toolCallSlot.classList.add('hidden');
 	sendBtn.disabled = false;
-	sendBtn.textContent = 'Send';
+	sendBtn.setAttribute('aria-label', 'Send');
+	sendBtn.title = 'Send';
 	sendBtn.classList.remove('composer-cancel');
 	settingsBtn.disabled = false;
 }
@@ -500,18 +519,38 @@ function startAssistantMessage(): void {
 	}
 }
 
-function appendAssistantDelta(text: string): void {
-	startAssistantMessage();
-	const nextRaw = (activeAssistantMessage?.dataset.rawMarkdown || '') + text;
+// Render the accumulated markdown once and clear any pending frame. Re-rendering
+// the full message re-parses/sanitizes/highlights everything, so we coalesce the
+// token stream to at most one render per animation frame instead of one per delta.
+function flushAssistantRender(): void {
+	if (assistantRenderFrame !== null) {
+		cancelAnimationFrame(assistantRenderFrame);
+		assistantRenderFrame = null;
+	}
 	if (!activeAssistantMessage) {
 		return;
 	}
-	activeAssistantMessage.dataset.rawMarkdown = nextRaw;
-	activeAssistantMessage.innerHTML = renderMarkdown(nextRaw);
+	activeAssistantMessage.innerHTML = renderMarkdown(activeAssistantMessage.dataset.rawMarkdown || '');
 	chatBody.scrollTop = chatBody.scrollHeight;
 }
 
+function appendAssistantDelta(text: string): void {
+	startAssistantMessage();
+	if (!activeAssistantMessage) {
+		return;
+	}
+	activeAssistantMessage.dataset.rawMarkdown = (activeAssistantMessage.dataset.rawMarkdown || '') + text;
+	if (assistantRenderFrame === null) {
+		assistantRenderFrame = requestAnimationFrame(() => {
+			assistantRenderFrame = null;
+			flushAssistantRender();
+		});
+	}
+}
+
 function finishAssistantMessage(): void {
+	// Ensure the final, complete markdown is rendered even if a frame was pending.
+	flushAssistantRender();
 	if (!activeAssistantMessage) {
 		appendMessage('assistant', DEFAULT_EMPTY_ASSISTANT_MESSAGE);
 		setLoading(false);
@@ -564,6 +603,10 @@ function resetChat(): void {
 	assistantSentDelta = false;
 	cancellationInFlight = false;
 	transientToolStatusEl = null;
+	if (assistantRenderFrame !== null) {
+		cancelAnimationFrame(assistantRenderFrame);
+		assistantRenderFrame = null;
+	}
 	appendWelcomeMessage();
 	activeAssistantMessage = null;
 	setLoading(false);
@@ -571,15 +614,15 @@ function resetChat(): void {
 
 function getRunStatusLabel(status: ChatRunStatus): string {
 	if (status === 'running') {
-		return '运行中';
+		return T.runStatus.running;
 	}
 	if (status === 'completed') {
-		return '已完成';
+		return T.runStatus.completed;
 	}
 	if (status === 'cancelled') {
-		return '已取消';
+		return T.runStatus.cancelled;
 	}
-	return '失败';
+	return T.runStatus.failed;
 }
 
 function normalizeElapsedFallback(text: string): string {
@@ -589,7 +632,7 @@ function normalizeElapsedFallback(text: string): string {
 	}
 	const matchedSeconds = normalized.match(/([0-9]+(?:\.[0-9]+)?)/);
 	if (matchedSeconds?.[1]) {
-		return `${matchedSeconds[1]} 秒`;
+		return `${matchedSeconds[1]} ${T.durationSuffix}`;
 	}
 	return normalized;
 }
@@ -598,10 +641,10 @@ function formatRunDurationSeconds(durationMs: number, includeFraction: boolean):
 	const safeDurationMs = Math.max(0, durationMs);
 	const seconds = safeDurationMs / 1000;
 	if (!includeFraction) {
-		return `${Math.floor(seconds)} 秒`;
+		return `${Math.floor(seconds)} ${T.durationSuffix}`;
 	}
 	const precision = seconds < 10 ? 2 : seconds < 60 ? 1 : 0;
-	return `${Number(seconds.toFixed(precision)).toString()} 秒`;
+	return `${Number(seconds.toFixed(precision)).toString()} ${T.durationSuffix}`;
 }
 
 function getRunDurationLabel(run: ChatRun, now = Date.now()): string {
@@ -609,10 +652,10 @@ function getRunDurationLabel(run: ChatRun, now = Date.now()): string {
 		return run.status === 'running' ? '' : normalizeElapsedFallback(run.elapsedText || '');
 	}
 	if (run.status === 'running') {
-		return `已运行 ${formatRunDurationSeconds(now - run.startedAt, false)}`;
+		return T.running(formatRunDurationSeconds(now - run.startedAt, false));
 	}
 	const endedAt = Number.isFinite(run.endedAt) ? (run.endedAt as number) : now;
-	return `总用时 ${formatRunDurationSeconds(endedAt - run.startedAt, true)}`;
+	return T.took(formatRunDurationSeconds(endedAt - run.startedAt, true));
 }
 
 function getRunMetaText(run: ChatRun, now = Date.now()): string {
@@ -705,7 +748,7 @@ function setRunPanelCollapsed(panel: HTMLDivElement, collapsed: boolean): void {
 	const currentCollapsed = body.classList.contains('collapsed');
 	panel.classList.toggle('collapsed', nextCollapsed);
 	toggle.setAttribute('aria-expanded', String(!nextCollapsed));
-	toggle.textContent = nextCollapsed ? '展开' : '折叠';
+	toggle.textContent = nextCollapsed ? T.expand : T.collapse;
 	const hasSummaryText = !!summary.textContent?.trim();
 	if (currentCollapsed === nextCollapsed) {
 		if (nextCollapsed) {
@@ -787,8 +830,8 @@ function setRunProgressCollapsed(runId: string, collapsed: boolean): void {
 	summary.classList.toggle('expanded', !nextCollapsed);
 		summary.setAttribute('aria-expanded', String(!nextCollapsed));
 	summary.textContent = nextCollapsed
-		? `进度记录（${nodes.length}）已折叠，点击展开`
-		: `进度记录（${nodes.length}）点击折叠`;
+		? T.progressCollapsed(nodes.length)
+		: T.progressExpanded(nodes.length);
 }
 
 function createRunPanel(run: ChatRun): HTMLDivElement {
@@ -811,7 +854,7 @@ function createRunPanel(run: ChatRun): HTMLDivElement {
 	const toggle = document.createElement('button');
 	toggle.type = 'button';
 	toggle.className = 'run-panel-toggle';
-	toggle.textContent = '折叠';
+	toggle.textContent = T.collapse;
 	toggle.addEventListener('click', (event) => {
 		event.stopPropagation();
 		const nextCollapsed = !panel.classList.contains('collapsed');
@@ -990,7 +1033,7 @@ function renderRunPanel(run: ChatRun): void {
 
 	title.textContent = run.title || 'Sub Agent';
 	meta.textContent = getRunMetaText(run);
-	toggle.textContent = run.collapsed ? '展开' : '折叠';
+	toggle.textContent = run.collapsed ? T.expand : T.collapse;
 	summary.textContent = '';
 	summary.classList.remove('show');
 
@@ -1142,8 +1185,8 @@ function setProgressRunCollapsed(runId: number, collapsed: boolean): void {
 	const summary = ensureProgressRunSummary(runId);
 	summary.classList.toggle('expanded', !nextCollapsed);
 	summary.textContent = nextCollapsed
-		? `进度记录（${nodes.length}）已折叠，点击展开`
-		: `进度记录（${nodes.length}）点击折叠`;
+		? T.progressCollapsed(nodes.length)
+		: T.progressExpanded(nodes.length);
 }
 
 function renderTodos(todos: ChatTodo[]): void {
@@ -1200,23 +1243,39 @@ function sendMessage(): void {
 	}
 	startAckTimeout = setTimeout(() => {
 		if (!isBusy) {
-			appendMessage('assistant', '请求未被处理，请重试一次。');
+			appendMessage('assistant', T.requestNotProcessed);
 		}
 	}, 5000);
+}
+
+function getDrawerFocusable(): HTMLElement[] {
+	const selector = 'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])';
+	return Array.from(sessionDrawer.querySelectorAll<HTMLElement>(selector)).filter(
+		(el) => !el.hasAttribute('disabled') && el.offsetParent !== null
+	);
 }
 
 function openSessionDrawer(): void {
 	sessionDrawer.classList.add('open');
 	sessionDrawerOverlay.classList.add('open');
+	sessionDrawer.setAttribute('aria-hidden', 'false');
+	chatTitleBtn.setAttribute('aria-expanded', 'true');
 	setTimeout(() => drawerSearch.focus(), 50);
 }
 
 function closeSessionDrawer(): void {
+	const wasOpen = sessionDrawer.classList.contains('open');
 	sessionDrawer.classList.remove('open');
 	sessionDrawerOverlay.classList.remove('open');
+	sessionDrawer.setAttribute('aria-hidden', 'true');
+	chatTitleBtn.setAttribute('aria-expanded', 'false');
 	editingSessionId = '';
 	drawerSearch.value = '';
 	filterSessions('');
+	// Return focus to the trigger when the user dismissed an open drawer.
+	if (wasOpen && document.activeElement !== document.body) {
+		chatTitleBtn.focus();
+	}
 }
 
 function toggleSessionDrawer(): void {
@@ -1551,13 +1610,40 @@ settingsBtn.addEventListener('click', () => {
 	}
 	vscode.postMessage({ type: 'chat:openSettings' });
 });
-chatHeader.addEventListener('click', () => {
+chatTitleBtn.addEventListener('click', () => {
 	if (!isBusy) {
 		toggleSessionDrawer();
 	}
 });
+headerNewChatBtn.addEventListener('click', () => {
+	if (isBusy) {
+		return;
+	}
+	closeSessionDrawer();
+	vscode.postMessage({ type: 'chat:newSession' });
+});
 sessionDrawerOverlay.addEventListener('click', () => {
 	closeSessionDrawer();
+});
+// Trap Tab within the drawer while it is open (modal dialog semantics).
+sessionDrawer.addEventListener('keydown', (event) => {
+	if (event.key !== 'Tab' || !sessionDrawer.classList.contains('open')) {
+		return;
+	}
+	const focusable = getDrawerFocusable();
+	if (focusable.length === 0) {
+		return;
+	}
+	const first = focusable[0];
+	const last = focusable[focusable.length - 1];
+	const active = document.activeElement as HTMLElement | null;
+	if (event.shiftKey && (active === first || !sessionDrawer.contains(active))) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && active === last) {
+		event.preventDefault();
+		first.focus();
+	}
 });
 document.addEventListener('keydown', (event) => {
 	if (event.key !== 'Escape') {
@@ -1652,11 +1738,11 @@ window.addEventListener('message', (event: MessageEvent<SidebarMessage>) => {
 	}
 	if (message.type === 'chat:error') {
 		if (activeAssistantMessage && !(activeAssistantMessage.dataset.rawMarkdown || '').trim()) {
-			const fallback = message.text || '请求失败';
+			const fallback = message.text || T.requestFailed;
 			activeAssistantMessage.dataset.rawMarkdown = fallback;
 			activeAssistantMessage.innerHTML = renderMarkdown(fallback);
 		} else {
-			appendMessage('assistant', message.text || '请求失败');
+			appendMessage('assistant', message.text || T.requestFailed);
 		}
 		setLoading(false);
 	}

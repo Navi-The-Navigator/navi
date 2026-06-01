@@ -14,7 +14,7 @@ suite('getSidebarHtml', () => {
 		assert.ok(html.includes('<title>Navi Chat</title>'));
 		assert.ok(
 			html.includes(
-				'你今天想构建什么？直接贴需求、报错或相关代码；我会先读取项目上下文，并在聊天区实时同步当前进度，再给你可立即执行的下一步。'
+				'What would you like to build today? Paste your requirements, errors, or related code; I will first read the project context and synchronize the current progress in the chat area, then give you the next actionable step.'
 			)
 		);
 		assert.ok(html.includes('id="todoPanel"'));

@@ -140,9 +140,9 @@ export class SettingsManager {
 		await config.update('authMode', selection.action, vscode.ConfigurationTarget.Global);
 
 		if (selection.action === 'copilot') {
-			vscode.window.showInformationMessage('已切换到 GitHub Copilot 模式。将使用 Copilot 订阅进行认证。');
+			vscode.window.showInformationMessage('Switched to GitHub Copilot mode. Authentication will use your Copilot subscription.');
 		} else {
-			vscode.window.showInformationMessage('已切换到 BYOK 模式。请配置 API Key 和 Endpoint。');
+			vscode.window.showInformationMessage('Switched to BYOK mode. Please configure your API Key and Endpoint.');
 			await this.openApiKeySettings();
 		}
 	}
@@ -188,16 +188,16 @@ export class SettingsManager {
 			}
 
 			await config.update('apiKey', input.trim(), vscode.ConfigurationTarget.Global);
-			vscode.window.showInformationMessage('API Key 已保存。后续会优先使用 VS Code Settings 中的 Key。');
+			vscode.window.showInformationMessage('API Key saved. The key stored in VS Code Settings will take precedence from now on.');
 			return;
 		}
 
 		if (selection.action === 'clear') {
 			await config.update('apiKey', '', vscode.ConfigurationTarget.Global);
 			if (envApiKey) {
-				vscode.window.showInformationMessage('已清除 VS Code 中的 API Key。当前会回退到环境变量。');
+				vscode.window.showInformationMessage('Cleared the API Key in VS Code. Falling back to the environment variable.');
 			} else {
-				vscode.window.showInformationMessage('已清除 VS Code 中的 API Key。当前未检测到可用 API Key。');
+				vscode.window.showInformationMessage('Cleared the API Key in VS Code. No usable API Key is currently detected.');
 			}
 		}
 	}
@@ -241,13 +241,13 @@ export class SettingsManager {
 			}
 
 			await config.update('apiBaseUrl', input.trim(), vscode.ConfigurationTarget.Global);
-			vscode.window.showInformationMessage(`LLM API 端点已更新为 ${input.trim()}。`);
+			vscode.window.showInformationMessage(`LLM API endpoint updated to ${input.trim()}.`);
 			return;
 		}
 
 		if (selection.action === 'reset') {
 			await config.update('apiBaseUrl', DEFAULT_API_BASE_URL, vscode.ConfigurationTarget.Global);
-			vscode.window.showInformationMessage(`LLM API 端点已重置为默认值 ${DEFAULT_API_BASE_URL}。`);
+			vscode.window.showInformationMessage(`LLM API endpoint reset to the default value ${DEFAULT_API_BASE_URL}.`);
 		}
 	}
 
@@ -290,13 +290,13 @@ export class SettingsManager {
 			}
 
 			await config.update('model', input.trim(), vscode.ConfigurationTarget.Global);
-			vscode.window.showInformationMessage(`LLM 模型已更新为 ${input.trim()}。`);
+			vscode.window.showInformationMessage(`LLM model updated to ${input.trim()}.`);
 			return;
 		}
 
 		if (selection.action === 'reset') {
 			await config.update('model', DEFAULT_MODEL, vscode.ConfigurationTarget.Global);
-			vscode.window.showInformationMessage(`LLM 模型已重置为默认值 ${DEFAULT_MODEL}。`);
+			vscode.window.showInformationMessage(`LLM model reset to the default value ${DEFAULT_MODEL}.`);
 		}
 	}
 

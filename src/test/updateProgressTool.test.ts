@@ -10,14 +10,14 @@ suite('createUpdateProgressTool', () => {
 			}
 		});
 
-		const result = JSON.parse(await tool.func('正在扫描项目结构')) as {
+		const result = JSON.parse(await tool.func('Scanning project structure')) as {
 			ok: boolean;
 			text: string;
 		};
 
 		assert.strictEqual(result.ok, true);
-		assert.strictEqual(result.text, '正在扫描项目结构');
-		assert.deepStrictEqual(progressUpdates, ['正在扫描项目结构']);
+		assert.strictEqual(result.text, 'Scanning project structure');
+		assert.deepStrictEqual(progressUpdates, ['Scanning project structure']);
 	});
 
 	test('supports structured progress payload', async () => {
@@ -29,15 +29,15 @@ suite('createUpdateProgressTool', () => {
 		});
 
 		const result = JSON.parse(
-			await tool.func('{"text":"已定位核心模块","stage":"analysis","status":"in_progress"}')
+			await tool.func('{"text":"Located the core module","stage":"analysis","status":"in_progress"}')
 		) as {
 			ok: boolean;
 			text: string;
 		};
 
 		assert.strictEqual(result.ok, true);
-		assert.strictEqual(result.text, '[analysis | in_progress] 已定位核心模块');
-		assert.deepStrictEqual(progressUpdates, ['[analysis | in_progress] 已定位核心模块']);
+		assert.strictEqual(result.text, '[analysis | in_progress] Located the core module');
+		assert.deepStrictEqual(progressUpdates, ['[analysis | in_progress] Located the core module']);
 	});
 
 	test('returns error when progress text is missing', async () => {

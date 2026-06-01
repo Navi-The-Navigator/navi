@@ -84,7 +84,7 @@ export function resolveProvider(
 
 	const apiKey = resolveApiKey(config);
 	if (!apiKey) {
-		throw new Error('缺少 API Key。请先通过 Settings 配置 navi.apiKey，或设置环境变量 NAVI_API_KEY。');
+		throw new Error('Missing API Key. Please configure navi.apiKey via Settings, or set the NAVI_API_KEY environment variable.');
 	}
 
 	return {
@@ -336,7 +336,7 @@ function maybeWarnCliPathNotResolved(tried: string[]): void {
 	hasShownCliPathWarning = true;
 
 	void vscode.window.showWarningMessage(
-		'未能自动定位 Copilot CLI 可执行文件。请在设置中配置 navi.copilotCliPath（例如 node_modules/@github/copilot-win32-x64/copilot.exe）。'
+		'Could not automatically locate the Copilot CLI executable. Please configure navi.copilotCliPath in the settings (for example, node_modules/@github/copilot-win32-x64/copilot.exe).'
 	);
 	cliDebugOutput.appendLine('[resolve-cli] WARNING: auto resolution failed. Please set navi.copilotCliPath.');
 	for (const candidate of tried) {

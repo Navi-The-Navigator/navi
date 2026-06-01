@@ -67,13 +67,13 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		private readonly globalState: vscode.Memento
 	) {
 		this.focusSwitcherStatusBar.command = NaviSidebarViewProvider.focusSwitcherCommand;
-		this.focusSwitcherStatusBar.tooltip = '切换待编辑高亮区域';
+		this.focusSwitcherStatusBar.tooltip = 'Switch focus region';
 		this.focusPrevStatusBar.command = NaviSidebarViewProvider.focusPrevCommand;
 		this.focusPrevStatusBar.text = '$(chevron-left)';
-		this.focusPrevStatusBar.tooltip = '跳到上一个高亮区域';
+		this.focusPrevStatusBar.tooltip = 'Jump to previous focus region';
 		this.focusNextStatusBar.command = NaviSidebarViewProvider.focusNextCommand;
 		this.focusNextStatusBar.text = '$(chevron-right)';
-		this.focusNextStatusBar.tooltip = '跳到下一个高亮区域';
+		this.focusNextStatusBar.tooltip = 'Jump to next focus region';
 		this.focusSwitcherStatusBar.hide();
 		this.focusPrevStatusBar.hide();
 		this.focusNextStatusBar.hide();
@@ -97,7 +97,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 				await this.activeWebview.postMessage({
 					type: 'chat:toolStatus',
-					text: '检测到 LLM 设置已更新，下一次请求会使用新配置。',
+					text: 'LLM settings updated. The next request will use the new configuration.',
 					transient: true
 				});
 			}),
@@ -271,7 +271,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 		if (message.type === 'chat:newSession') {
 			if (this.isGenerating) {
-				await this.postError(webview, '当前回答尚未完成，请稍后再新建会话。');
+				await this.postError(webview, 'The current reply is still in progress. Please wait before starting a new chat.');
 				return;
 			}
 
@@ -285,13 +285,13 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 		if (message.type === 'chat:switchSession') {
 			if (this.isGenerating) {
-				await this.postError(webview, '当前回答尚未完成，请稍后再切换会话。');
+				await this.postError(webview, 'The current reply is still in progress. Please wait before switching chats.');
 				return;
 			}
 
 			const sessionId = message.sessionId ?? '';
 			if (!sessionId || !this.sessionStore.switchSession(sessionId)) {
-				await this.postError(webview, '目标会话不存在。');
+				await this.postError(webview, 'That chat no longer exists.');
 				return;
 			}
 
@@ -306,13 +306,13 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			const sessionId = message.sessionId ?? '';
 			const nextTitle = (message.title ?? '').trim();
 			if (!sessionId || !nextTitle) {
-				await this.postError(webview, '重命名失败：标题不能为空。');
+				await this.postError(webview, 'Rename failed: the title cannot be empty.');
 				return;
 			}
 
 			const renamed = this.sessionStore.renameSession(sessionId, nextTitle);
 			if (!renamed) {
-				await this.postError(webview, '重命名失败：会话不存在。');
+				await this.postError(webview, 'Rename failed: that chat no longer exists.');
 				return;
 			}
 
@@ -322,28 +322,28 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 		if (message.type === 'chat:deleteSession') {
 			if (this.isGenerating) {
-				await this.postError(webview, '当前回答尚未完成，请稍后再删除会话。');
+				await this.postError(webview, 'The current reply is still in progress. Please wait before deleting a chat.');
 				return;
 			}
 
 			const sessionId = message.sessionId ?? '';
 			if (!sessionId) {
-				await this.postError(webview, '删除失败：会话不存在。');
+				await this.postError(webview, 'Delete failed: that chat no longer exists.');
 				return;
 			}
 
 			const confirm = await vscode.window.showWarningMessage(
-				'确定要删除这个会话吗？',
+				'Delete this chat?',
 				{ modal: true },
-				'删除'
+				'Delete'
 			);
-			if (confirm !== '删除') {
+			if (confirm !== 'Delete') {
 				return;
 			}
 
 			const deleted = this.sessionStore.deleteSession(sessionId);
 			if (!deleted) {
-				await this.postError(webview, '删除失败：会话不存在。');
+				await this.postError(webview, 'Delete failed: that chat no longer exists.');
 				return;
 			}
 
@@ -360,7 +360,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			const sessionId = message.sessionId ?? this.sessionStore.getCurrentSessionId();
 			const target = this.getActiveFocusTarget(sessionId);
 			if (!target) {
-				await this.postError(webview, '当前会话还没有可跳转的待编辑区域。');
+				await this.postError(webview, 'This chat has no focus regions to jump to yet.');
 				return;
 			}
 
@@ -392,7 +392,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 				this.activeGenerationAbortController?.abort();
 				await webview.postMessage({
 					type: 'chat:toolStatus',
-					text: '正在取消当前回复...',
+					text: 'Cancelling the current reply…',
 					transient: true
 				});
 			}
@@ -418,7 +418,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			logAgentFlow('main.extension', 'handleUserMessage:rejected_busy', {
 				currentSessionId: this.sessionStore.getCurrentSessionId()
 			});
-			await this.postError(webview, '请等待当前回答完成后再发送下一条消息。');
+			await this.postError(webview, 'Please wait for the current reply to finish before sending another message.');
 			return;
 		}
 
@@ -493,15 +493,15 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 					activeSubagentRuns: this.activeSubagentRunIds.size,
 					cancelRequested: this.cancelGenerationRequested
 				});
-				this.sessionStore.appendAssistantDelta(sessionId, '我暂时没有生成可显示的文本响应。');
+				this.sessionStore.appendAssistantDelta(sessionId, 'I have not generated any displayable text response yet.');
 				await webview.postMessage({
 					type: 'chat:assistantDelta',
-					text: '我暂时没有生成可显示的文本响应。'
+					text: 'I have not generated any displayable text response yet.'
 				});
 			}
 
 			const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(2);
-			elapsedText = `用时：${elapsedSeconds}s`;
+			elapsedText = `Elapsed: ${elapsedSeconds}s`;
 			shouldPersistElapsed = true;
 			logAgentFlow('main.extension', 'handleUserMessage:elapsed_ready', {
 				sessionId,
@@ -514,7 +514,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			});
 		} catch (error) {
 			const messageText = error instanceof Error ? error.message : 'Unknown error';
-			generationCancelled = messageText.includes('用户已取消');
+			generationCancelled = messageText.includes('cancelled by the user');
 			generationFailed = !generationCancelled;
 			generationFailureMessage = messageText;
 			logAgentFlow('main.extension', 'handleUserMessage:error', {
@@ -524,16 +524,16 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 				error,
 				cancelRequested: this.cancelGenerationRequested
 			});
-			if (messageText.includes('用户已取消')) {
-				this.sessionStore.setAssistantError(sessionId, '已取消本次回复。');
+			if (messageText.includes('cancelled by the user')) {
+				this.sessionStore.setAssistantError(sessionId, 'This reply was cancelled.');
 				await webview.postMessage({
 					type: 'chat:assistantDelta',
-					text: '已取消本次回复。'
+					text: 'This reply was cancelled.'
 				});
 				return;
 			}
-			this.sessionStore.setAssistantError(sessionId, `请求 LLM 失败：${messageText}`);
-			await this.postError(webview, `请求 LLM 失败：${messageText}`);
+			this.sessionStore.setAssistantError(sessionId, `LLM request failed: ${messageText}`);
+			await this.postError(webview, `LLM request failed: ${messageText}`);
 		} finally {
 			logAgentFlow('main.extension', 'handleUserMessage:finally_before_finish', {
 				sessionId,
@@ -608,7 +608,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 					elapsedText
 				});
 			} else {
-				this.sessionStore.failRun(sessionId, runId, errorText || '主请求提前结束，子任务未完成。', elapsedText);
+				this.sessionStore.failRun(sessionId, runId, errorText || 'The main request ended early; the subtask did not finish.', elapsedText);
 			}
 
 			await this.postRunStateToActiveWebview(sessionId, runId);
@@ -644,18 +644,18 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			}
 
 			const choice = await vscode.window.showInformationMessage(
-				'检测到环境变量中的 API Key。当前未在 VS Code 中配置 API Key。是否先使用环境变量继续？',
+				'An API key was found in your environment variables, but none is configured in VS Code. Continue using the environment variable for now?',
 				{ modal: true },
-				'使用环境变量',
-				'去设置 Key'
+				'Use environment variable',
+				'Configure key'
 			);
 
-			if (choice === '使用环境变量') {
+			if (choice === 'Use environment variable') {
 				await this.globalState.update(NaviSidebarViewProvider.envApiKeyConfirmedStateKey, true);
 				return true;
 			}
 
-			if (choice === '去设置 Key') {
+			if (choice === 'Configure key') {
 				await this.settingsManager.openApiKeySettings();
 				const refreshedApiKey = (config.get<string>('apiKey') ?? '').trim();
 				if (refreshedApiKey) {
@@ -668,19 +668,19 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		const setupChoice = await vscode.window.showWarningMessage(
-			'BYOK 模式下还没有可用的 API Key。是否现在去设置？',
+			'No API key is available for BYOK mode. Configure one now?',
 			{ modal: true },
-			'去设置 Key',
-			'切换到 Copilot 模式'
+			'Configure key',
+			'Switch to Copilot mode'
 		);
-		if (setupChoice === '去设置 Key') {
+		if (setupChoice === 'Configure key') {
 			await this.settingsManager.openApiKeySettings();
 			const updatedApiKey = (config.get<string>('apiKey') ?? '').trim();
 			return !!updatedApiKey;
 		}
-		if (setupChoice === '切换到 Copilot 模式') {
+		if (setupChoice === 'Switch to Copilot mode') {
 			await config.update('authMode', 'copilot', vscode.ConfigurationTarget.Global);
-			vscode.window.showInformationMessage('已切换到 GitHub Copilot 模式。');
+			vscode.window.showInformationMessage('Switched to GitHub Copilot mode.');
 			return true;
 		}
 		return false;
@@ -870,7 +870,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		if (runId) {
 			this.subagentRunIdsByToolCallId.set(event.data.toolCallId, runId);
 			this.subagentToolNamesByToolCallId.set(event.data.toolCallId, toolName);
-			this.sessionStore.setRunTransientToolStatus(sessionId, runId, `正在调用工具 \`${toolName}\`...`);
+			this.sessionStore.setRunTransientToolStatus(sessionId, runId, `Calling tool \`${toolName}\`…`);
 			await this.postRunStateToActiveWebview(sessionId, runId);
 			return;
 		}
@@ -881,7 +881,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 		await webview.postMessage({
 			type: 'chat:toolStatus',
-			text: `正在调用工具 \`${toolName}\`...`,
+			text: `Calling tool \`${toolName}\`…`,
 			transient: true
 		});
 	}
@@ -1072,7 +1072,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		if (!Number.isFinite(durationMs)) {
 			return undefined;
 		}
-		return `用时：${((durationMs as number) / 1000).toFixed(2)}s`;
+		return `Elapsed: ${((durationMs as number) / 1000).toFixed(2)}s`;
 	}
 
 	private resolveSubagentDisplayName(agentName: string | undefined, agentDisplayName: string | undefined): string {
@@ -1095,10 +1095,10 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 
 	private resolveSubagentCompletionText(agentName: string | undefined, agentDisplayName: string | undefined): string {
 		if (agentName === CODE_REVIEW_AGENT_NAME) {
-			return '任务评估子 agent 已完成。';
+			return 'The task-review subagent finished.';
 		}
 
-		return `${this.resolveSubagentDisplayName(agentName, agentDisplayName)} 已完成。`;
+		return `${this.resolveSubagentDisplayName(agentName, agentDisplayName)} finished.`;
 	}
 
 	private extractProgressFromToolResult(
@@ -1157,7 +1157,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 			path: this.normalizeRelativePath(path.relative(workspaceRoot, absolutePath)),
 			startLine: range.start.line + 1,
 			endLine: range.end.line + 1,
-			title: (input.title ?? '').trim() || '下一步编码区域',
+			title: (input.title ?? '').trim() || 'Next coding region',
 			instruction: (input.instruction ?? '').trim(),
 			updatedAt: Date.now()
 		};
@@ -1346,13 +1346,13 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		const targets = this.focusTargetsBySessionId.get(sessionId) ?? [];
 		if (targets.length === 0) {
 			this.focusSwitcherStatusBar.text = '$(symbol-event) Navi Focus 0/0';
-			this.focusSwitcherStatusBar.tooltip = '当前没有高亮区域，点击打开 Focus 面板';
+			this.focusSwitcherStatusBar.tooltip = 'No focus regions yet. Click to open the Focus panel.';
 			this.focusSwitcherStatusBar.show();
 			this.focusPrevStatusBar.text = '$(chevron-left)';
-			this.focusPrevStatusBar.tooltip = '当前没有高亮区域';
+			this.focusPrevStatusBar.tooltip = 'No focus regions yet';
 			this.focusPrevStatusBar.show();
 			this.focusNextStatusBar.text = '$(chevron-right)';
-			this.focusNextStatusBar.tooltip = '当前没有高亮区域';
+			this.focusNextStatusBar.tooltip = 'No focus regions yet';
 			this.focusNextStatusBar.show();
 			return;
 		}
@@ -1360,13 +1360,13 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		const index = this.getActiveFocusIndex(sessionId, targets.length);
 		const target = targets[index];
 		this.focusSwitcherStatusBar.text = `$(symbol-event) Navi Focus ${index + 1}/${targets.length}`;
-		this.focusSwitcherStatusBar.tooltip = `${target.path}:${target.startLine}-${target.endLine}\n点击切换目标区域`;
+		this.focusSwitcherStatusBar.tooltip = `${target.path}:${target.startLine}-${target.endLine}\nClick to switch focus region`;
 		this.focusSwitcherStatusBar.show();
 		this.focusPrevStatusBar.text = '$(chevron-left)';
-		this.focusPrevStatusBar.tooltip = '跳到上一个高亮区域';
+		this.focusPrevStatusBar.tooltip = 'Jump to previous focus region';
 		this.focusPrevStatusBar.show();
 		this.focusNextStatusBar.text = '$(chevron-right)';
-		this.focusNextStatusBar.tooltip = '跳到下一个高亮区域';
+		this.focusNextStatusBar.tooltip = 'Jump to next focus region';
 		this.focusNextStatusBar.show();
 	}
 
@@ -1452,7 +1452,7 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 		const sessionId = this.sessionStore.getCurrentSessionId();
 		const targets = this.focusTargetsBySessionId.get(sessionId) ?? [];
 		if (targets.length === 0) {
-			void vscode.window.showInformationMessage('当前会话还没有可切换的高亮区域。');
+			void vscode.window.showInformationMessage('This chat has no focus regions to switch between yet.');
 			return;
 		}
 
@@ -1597,18 +1597,18 @@ class NaviSidebarViewProvider implements vscode.WebviewViewProvider {
 	): Promise<void> {
 		const webview = this.activeWebview;
 		if (!webview) {
-			void vscode.window.showWarningMessage('Chat 面板未打开，无法发送 Focus 操作请求。');
+			void vscode.window.showWarningMessage('The Chat panel is not open, so the Focus action could not be sent.');
 			return;
 		}
 		if (this.isGenerating) {
-			await this.postError(webview, '请等待当前回答完成后再发起新的 Focus 操作。');
+			await this.postError(webview, 'Please wait for the current reply to finish before starting a new Focus action.');
 			return;
 		}
 
 		const allTargets = this.focusTargetsBySessionId.get(sessionId) ?? [];
 		const selectedTargets = allTargets.filter((target) => focusTargetIds.includes(target.id));
 		if (selectedTargets.length === 0) {
-			void vscode.window.showInformationMessage('请先在 Focus 面板勾选至少一个高亮区域。');
+			void vscode.window.showInformationMessage('Select at least one focus region in the Focus panel first.');
 			return;
 		}
 

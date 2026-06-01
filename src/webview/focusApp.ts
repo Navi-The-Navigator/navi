@@ -22,6 +22,20 @@ declare function acquireVsCodeApi(): {
 	getState?(): unknown;
 };
 
+// User-facing strings, centralized for easy future localization.
+const T = {
+	emptySummary: 'No focus regions yet',
+	summary: (total: number, current: number) => `${total} focus regions · viewing ${current} of ${total}`,
+	untitledRegion: 'Untitled region',
+	defaultInstruction: 'Continue the current task in this region.',
+	jump: 'Jump',
+	help: 'Help',
+	review: 'Review',
+	jumpAria: (title: string, location: string) => `Jump to ${title}, ${location}`,
+	helpAria: (title: string) => `Get help on ${title}`,
+	reviewAria: (title: string) => `Mark ${title} for review`
+} as const;
+
 const vscode = acquireVsCodeApi();
 const focusSummary = requireElement<HTMLDivElement>('#focusSummary');
 const focusList = requireElement<HTMLDivElement>('#focusList');
@@ -62,14 +76,14 @@ function render(): void {
 		Array.from(selectedTargetIds).filter((id) => focusTargets.some((target) => target.id === id))
 	);
 	if (!Array.isArray(focusTargets) || focusTargets.length === 0) {
-		focusSummary.textContent = '暂无高亮区域';
+		focusSummary.textContent = T.emptySummary;
 		focusPrevBtn.disabled = true;
 		focusNextBtn.disabled = true;
 		refreshFooter();
 		return;
 	}
 
-	focusSummary.textContent = `当前会话 ${focusTargets.length} 个高亮区域，当前第 ${activeIndex + 1} 个`;
+	focusSummary.textContent = T.summary(focusTargets.length, activeIndex + 1);
 	focusPrevBtn.disabled = focusTargets.length <= 1;
 	focusNextBtn.disabled = focusTargets.length <= 1;
 
@@ -85,7 +99,7 @@ function render(): void {
 
 		const title = document.createElement('div');
 		title.className = 'focus-target-title';
-		title.textContent = target.title || '待编辑区域';
+		title.textContent = target.title || T.untitledRegion;
 
 		const toggleWrap = document.createElement('label');
 		toggleWrap.className = 'focus-target-checkbox-wrap';
@@ -112,15 +126,19 @@ function render(): void {
 
 		const instruction = document.createElement('div');
 		instruction.className = 'focus-target-instruction';
-		instruction.textContent = target.instruction || '请在该区域继续当前任务。';
+		instruction.textContent = target.instruction || T.defaultInstruction;
 
 		const actionRow = document.createElement('div');
 		actionRow.className = 'focus-target-action-row';
 
+		const titleLabel = title.textContent || T.untitledRegion;
+		const locationLabel = location.textContent || '';
+
 		const jumpButton = document.createElement('button');
 		jumpButton.type = 'button';
 		jumpButton.className = 'focus-target-jump';
-		jumpButton.textContent = '跳转';
+		jumpButton.textContent = T.jump;
+		jumpButton.setAttribute('aria-label', T.jumpAria(titleLabel, locationLabel));
 		jumpButton.addEventListener('click', () => {
 			vscode.postMessage({
 				type: 'focus:revealById',
@@ -132,7 +150,8 @@ function render(): void {
 		const helpButton = document.createElement('button');
 		helpButton.type = 'button';
 		helpButton.className = 'focus-target-jump focus-help-btn';
-		helpButton.textContent = 'Help';
+		helpButton.textContent = T.help;
+		helpButton.setAttribute('aria-label', T.helpAria(titleLabel));
 		helpButton.addEventListener('click', () => {
 			vscode.postMessage({
 				type: 'focus:helpById',
@@ -144,7 +163,8 @@ function render(): void {
 		const reviewButton = document.createElement('button');
 		reviewButton.type = 'button';
 		reviewButton.className = 'focus-target-jump focus-review-btn';
-		reviewButton.textContent = 'Review';
+		reviewButton.textContent = T.review;
+		reviewButton.setAttribute('aria-label', T.reviewAria(titleLabel));
 		reviewButton.addEventListener('click', () => {
 			vscode.postMessage({
 				type: 'focus:reviewById',

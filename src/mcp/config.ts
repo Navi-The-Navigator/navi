@@ -14,13 +14,13 @@ export function parseMcpServerSettings(raw: string): McpServerSettings {
 
 	const parsed = JSON.parse(raw);
 	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-		throw new Error('navi.mcpServersJson 必须是 JSON 对象。');
+		throw new Error('navi.mcpServersJson must be a JSON object.');
 	}
 
 	const result: McpServerSettings = {};
 	for (const [name, value] of Object.entries(parsed)) {
 		if (!value || typeof value !== 'object' || Array.isArray(value)) {
-			throw new Error(`MCP 服务器 "${name}" 的配置必须是对象。`);
+			throw new Error(`The configuration for MCP server "${name}" must be an object.`);
 		}
 		result[name] = value as McpServerEntry;
 	}

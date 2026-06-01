@@ -7,7 +7,7 @@ suite('ChatSessionStore', () => {
 		const sessions = store.getSessions();
 
 		assert.strictEqual(sessions.length, 1);
-		assert.strictEqual(sessions[0].title, 'New Chat');
+		assert.strictEqual(sessions[0].title, 'New Chat #1');
 		assert.strictEqual(store.getCurrentSessionId(), sessions[0].id);
 	});
 
@@ -120,9 +120,9 @@ suite('ChatSessionStore', () => {
 
 		store.appendMessage(sessionId, 'user', 'first question');
 		const runId = store.startAssistantReply(sessionId);
-		store.appendStatusEntry(sessionId, 'progress', '扫描项目结构');
-		store.appendAssistantDelta(sessionId, '正在分析');
-		store.appendStatusEntry(sessionId, 'elapsed', '用时：1.25s');
+		store.appendStatusEntry(sessionId, 'progress', 'Scan project structure');
+		store.appendAssistantDelta(sessionId, 'Analyzing');
+		store.appendStatusEntry(sessionId, 'elapsed', 'Elapsed:1.25s');
 		store.finishAssistantReply(sessionId);
 
 		const state = store.getViewState(sessionId);
@@ -140,21 +140,21 @@ suite('ChatSessionStore', () => {
 		assert.deepStrictEqual(state.timeline[1], {
 			kind: 'status',
 			statusKind: 'progress',
-			text: '扫描项目结构',
+			text: 'Scan project structure',
 			runId: 1,
 			createdAt: state.timeline[1].createdAt
 		});
 		assert.deepStrictEqual(state.timeline[2], {
 			kind: 'status',
 			statusKind: 'elapsed',
-			text: '用时：1.25s',
+			text: 'Elapsed:1.25s',
 			runId: 1,
 			createdAt: state.timeline[2].createdAt
 		});
 		assert.deepStrictEqual(state.timeline[3], {
 			kind: 'message',
 			role: 'assistant',
-			text: '正在分析',
+			text: 'Analyzing',
 			createdAt: state.timeline[3].createdAt
 		});
 	});
@@ -166,7 +166,7 @@ suite('ChatSessionStore', () => {
 		store.appendMessage(sessionId, 'user', 'follow up');
 		store.startAssistantReply(sessionId);
 		store.appendAssistantDelta(sessionId, 'partial answer');
-		store.appendStatusEntry(sessionId, 'progress', '正在读取文件');
+		store.appendStatusEntry(sessionId, 'progress', 'Reading files');
 
 		const state = store.getViewState(sessionId);
 		assert.strictEqual(state.isGenerating, true);
@@ -185,13 +185,13 @@ suite('ChatSessionStore', () => {
 			title: 'Task Assessment Agent',
 			kind: 'code_review'
 		});
-		store.setRunTransientToolStatus(sessionId, run.id, '正在调用工具 `read_file`...');
-		store.appendRunProgress(sessionId, run.id, '正在分析模块边界');
-		store.appendRunAssistantDelta(sessionId, run.id, '发现一处缺少空值判断');
+		store.setRunTransientToolStatus(sessionId, run.id, 'Calling tool `read_file`…');
+		store.appendRunProgress(sessionId, run.id, 'Analyzing module boundaries');
+		store.appendRunAssistantDelta(sessionId, run.id, 'Found a missing null check');
 		store.clearRunTransientToolStatus(sessionId, run.id);
 		store.finishRun(sessionId, run.id, {
-			elapsedText: '用时：0.42s',
-			finalAssistantText: '发现一处缺少空值判断'
+			elapsedText: 'Elapsed:0.42s',
+			finalAssistantText: 'Found a missing null check'
 		});
 
 		const state = store.getViewState(sessionId);
@@ -200,9 +200,9 @@ suite('ChatSessionStore', () => {
 		assert.strictEqual(state.runs[0].id, run.id);
 		assert.strictEqual(state.runs[0].status, 'completed');
 		assert.strictEqual(state.runs[0].collapsed, true);
-		assert.strictEqual(state.runs[0].elapsedText, '用时：0.42s');
+		assert.strictEqual(state.runs[0].elapsedText, 'Elapsed:0.42s');
 		assert.strictEqual(state.runs[0].transientToolStatusText, '');
-		assert.strictEqual(state.runs[0].finalAssistantText, '发现一处缺少空值判断');
+		assert.strictEqual(state.runs[0].finalAssistantText, 'Found a missing null check');
 		assert.strictEqual(state.runs[0].events.length, 2);
 		assert.deepStrictEqual(state.runs[0].events.map((event) => event.kind), ['progress', 'elapsed']);
 	});
@@ -216,19 +216,19 @@ suite('ChatSessionStore', () => {
 			title: 'Explore Agent',
 			kind: 'subagent'
 		});
-		store.appendRunProgress(sessionId, run.id, '正在读取相关文件');
-		store.appendRunAssistantDelta(sessionId, run.id, '先确认调用链，再检查取消信号');
+		store.appendRunProgress(sessionId, run.id, 'Reading related files');
+		store.appendRunAssistantDelta(sessionId, run.id, 'Confirm the call chain first, then check the cancellation signal');
 		store.finishRun(sessionId, run.id, {
 			status: 'cancelled',
-			elapsedText: '用时：0.21s'
+			elapsedText: 'Elapsed:0.21s'
 		});
 
 		const state = store.getViewState(sessionId);
 		assert.strictEqual(state.runs.length, 1);
 		assert.strictEqual(state.runs[0].status, 'cancelled');
 		assert.strictEqual(state.runs[0].collapsed, true);
-		assert.strictEqual(state.runs[0].finalAssistantText, '先确认调用链，再检查取消信号');
-		assert.strictEqual(state.runs[0].elapsedText, '用时：0.21s');
+		assert.strictEqual(state.runs[0].finalAssistantText, 'Confirm the call chain first, then check the cancellation signal');
+		assert.strictEqual(state.runs[0].elapsedText, 'Elapsed:0.21s');
 		assert.deepStrictEqual(state.runs[0].events.map((event) => event.kind), ['progress', 'elapsed']);
 	});
 
@@ -238,12 +238,12 @@ suite('ChatSessionStore', () => {
 
 		store.appendMessage(sessionId, 'user', 'review and continue');
 		store.startAssistantReply(sessionId);
-		store.appendStatusEntry(sessionId, 'progress', '先读取项目结构');
+		store.appendStatusEntry(sessionId, 'progress', 'Read the project structure first');
 		const run = store.startRun(sessionId, {
 			title: 'Task Assessment Agent',
 			kind: 'code_review'
 		});
-		store.appendStatusEntry(sessionId, 'progress', '根据子任务结果整理结论');
+		store.appendStatusEntry(sessionId, 'progress', 'Summarize conclusions from the subtask results');
 
 		const state = store.getViewState(sessionId);
 		const statusEntries = state.timeline.filter((entry) => entry.kind === 'status');
@@ -263,12 +263,12 @@ suite('ChatSessionStore', () => {
 			kind: 'code_review'
 		});
 
-		store.setRunTransientToolStatus(sessionId, run.id, '正在调用工具 `read_file`...');
+		store.setRunTransientToolStatus(sessionId, run.id, 'Calling tool `read_file`…');
 
 		const liveRun = store.getRun(sessionId, run.id);
 		const viewState = store.getViewState(sessionId);
 
-		assert.strictEqual(liveRun?.transientToolStatusText, '正在调用工具 `read_file`...');
+		assert.strictEqual(liveRun?.transientToolStatusText, 'Calling tool `read_file`…');
 		assert.strictEqual(viewState.runs[0].transientToolStatusText, '');
 	});
 });

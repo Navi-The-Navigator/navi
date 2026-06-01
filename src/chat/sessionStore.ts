@@ -17,7 +17,7 @@ type ChatSessionViewStateInternal = ChatSessionViewState & {
 	pendingAssistantError?: string;
 };
 
-const DEFAULT_EMPTY_ASSISTANT_MESSAGE = '我暂时没有生成可显示的文本响应。';
+const DEFAULT_EMPTY_ASSISTANT_MESSAGE = 'I have not generated any displayable text response yet.';
 
 export class ChatSessionStore {
 	private readonly sessions: ChatSession[] = [];
